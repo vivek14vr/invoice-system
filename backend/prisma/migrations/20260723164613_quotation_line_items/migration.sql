@@ -1,0 +1,13 @@
+/*
+  Warnings:
+
+  - Added the required column `name` to the `QuoteItem` table without a default value. This is not possible if the table is not empty.
+
+*/
+-- AlterTable
+ALTER TABLE `Quotation` ADD COLUMN `invoiceGroupId` VARCHAR(191) NULL;
+
+-- AlterTable
+ALTER TABLE `QuoteItem` ADD COLUMN `name` VARCHAR(191) NOT NULL,
+    ADD COLUMN `taxRate` DECIMAL(5, 2) NOT NULL DEFAULT 0,
+    MODIFY `description` TEXT NULL;

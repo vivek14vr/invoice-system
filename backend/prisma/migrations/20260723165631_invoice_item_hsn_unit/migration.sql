@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `InvoiceItem` ADD COLUMN `hsnSac` VARCHAR(191) NULL,
+    ADD COLUMN `unit` VARCHAR(191) NOT NULL DEFAULT 'Nos';
