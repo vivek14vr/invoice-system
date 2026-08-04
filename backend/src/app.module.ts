@@ -8,11 +8,13 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { QuotationsModule } from './quotations/quotations.module';
 import { SettingsModule } from './settings/settings.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    AuthModule,
     DashboardModule,
     ClientsModule,
     InvoicesModule,

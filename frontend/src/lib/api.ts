@@ -7,12 +7,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     const res = await fetch(`${API_URL}${path}`, {
       ...init,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers ?? {}),
       },
       cache: "no-store",
     });
+    if (
+      res.status === 401 &&
+      typeof window !== "undefined" &&
+      window.location.pathname !== "/login"
+    ) {
+      window.location.assign("/login");
+    }
     if (!res.ok) {
       const text = await res.text();
       let message = text;
@@ -40,6 +48,13 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   pdfUrl: (invoiceId: string) => `${API_URL}/invoices/${invoiceId}/pdf`,
+};
+
+export type AuthUser = { id: string; email: string; name: string };
+
+export type AuthResponse = {
+  user: AuthUser;
+  expiresAt?: string;
 };
 
 export type Client = {

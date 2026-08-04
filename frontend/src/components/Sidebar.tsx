@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { AuthUser } from "@/lib/api";
 import {
   Box,
   CreditCard,
@@ -23,7 +24,13 @@ const nav = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  user,
+  onLogout,
+}: {
+  user: AuthUser;
+  onLogout: () => void;
+}) {
   const pathname = usePathname();
 
   return (
@@ -73,12 +80,13 @@ export function Sidebar() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-900">
-              Admin User
+              {user.name}
             </p>
-            <p className="truncate text-xs text-slate-500">admin@example.com</p>
+            <p className="truncate text-xs text-slate-500">{user.email}</p>
           </div>
           <button
             type="button"
+            onClick={onLogout}
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             aria-label="Logout"
           >

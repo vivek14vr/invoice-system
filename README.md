@@ -34,6 +34,11 @@ npm run prisma:push
 npm run start:dev
 ```
 
+Set `ADMIN_EMAIL` and a strong `ADMIN_PASSWORD` (at least 12 characters) in
+`backend/.env` before the first backend start. The first administrator is
+created automatically with a salted password hash. Login sessions are stored
+in MongoDB and delivered through an HTTP-only cookie.
+
 API: http://localhost:3001
 
 ## 3. Frontend
@@ -65,6 +70,7 @@ database by default. The original SQL migration files remain under
 ## Features
 
 - Dashboard with KPIs and recent activity
+- Protected administrator login and server-side session validation
 - Clients, Quotations, Invoices (with PDF download), Payments, Products
 - Settings: general, invoice defaults, tax rates, invoice groups, payment methods
 
