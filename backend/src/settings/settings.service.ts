@@ -12,7 +12,7 @@ import {
 } from './dto/settings.dto';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
-  app_name: 'Girijasoft Invoices',
+  app_name: 'girjasoft Invoices',
   default_language: 'english',
   currency_symbol: '₹',
   currency_code: 'INR',
@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   quotes_expire_after: '15',
   default_invoice_terms: '',
   pdf_footer_text: 'Thank you for your business!',
-  company_name: 'Girijasoft Pvt Ltd',
+  company_name: 'girjasoft pvt ltd',
   company_address: '',
   company_gstin: '',
   company_state: '',

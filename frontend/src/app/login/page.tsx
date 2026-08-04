@@ -45,7 +45,7 @@ export default function LoginPage() {
             <FileText className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-lg font-semibold">Girijasoft Pvt Ltd</p>
+            <p className="text-lg font-semibold">girjasoft pvt ltd</p>
             <p className="text-sm text-slate-400">Invoice System</p>
           </div>
         </div>
@@ -127,7 +127,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          Secure access to Girijasoft Invoices
+          Secure access to girjasoft Invoices
         </p>
       </div>
     </main>

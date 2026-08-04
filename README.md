@@ -1,4 +1,4 @@
-# Girijasoft Invoice System
+# girjasoft Invoice System
 
 Client management and invoicing — separate Next.js frontend and NestJS backend, powered by MongoDB.
 

@@ -310,7 +310,7 @@ export async function buildTaxInvoicePdf(
   y += 18;
   hLine(doc, left, right, y);
 
-  const companyName = settings.company_name || 'Girijasoft Pvt Ltd';
+  const companyName = settings.company_name || 'girjasoft pvt ltd';
   const companyAddress = settings.company_address || '';
   const gstin = settings.company_gstin || '';
   const stateName = settings.company_state || '';

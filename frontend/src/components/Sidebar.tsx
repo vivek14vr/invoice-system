@@ -41,7 +41,7 @@ export function Sidebar({
         </div>
         <div>
           <p className="text-sm font-semibold text-slate-900">
-            Girijasoft Pvt Ltd
+            girjasoft pvt ltd
           </p>
           <p className="text-xs text-slate-500">Invoice System</p>
         </div>
@@ -94,7 +94,7 @@ export function Sidebar({
           </button>
         </div>
         <p className="mt-3 text-center text-[11px] text-slate-400">
-          Powered by Girijasoft
+          Powered by girjasoft
         </p>
       </div>
     </aside>
