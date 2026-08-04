@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mamaji Invoices",
+  title: "Girijasoft Invoices",
   description: "Client management and invoicing system",
 };
 

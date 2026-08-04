@@ -64,10 +64,6 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   stateCode?: string;
-
-  @IsOptional()
-  @IsString()
-  status?: string;
 }
 
 export class UpdateClientDto {
@@ -135,8 +131,4 @@ export class UpdateClientDto {
   @IsOptional()
   @IsString()
   stateCode?: string;
-
-  @IsOptional()
-  @IsString()
-  status?: string;
 }

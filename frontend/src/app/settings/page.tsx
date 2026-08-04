@@ -71,7 +71,7 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        subtitle="Configure your Mamaji Invoices application."
+        subtitle="Configure your Girijasoft Invoices application."
       />
 
       {error ? (

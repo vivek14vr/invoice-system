@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 
@@ -23,13 +27,29 @@ export class ProductsService {
     return product;
   }
 
-  create(dto: CreateProductDto) {
-    return this.prisma.product.create({ data: dto });
+  async create(dto: CreateProductDto) {
+    const sku = dto.sku?.trim() || null;
+    await this.assertSkuAvailable(sku);
+    return this.prisma.product.create({ data: { ...dto, sku } });
   }
 
   async update(id: string, dto: UpdateProductDto) {
     await this.findOne(id);
-    return this.prisma.product.update({ where: { id }, data: dto });
+    const sku = dto.sku === undefined ? undefined : dto.sku?.trim() || null;
+    await this.assertSkuAvailable(sku, id);
+    return this.prisma.product.update({
+      where: { id },
+      data: { ...dto, sku },
+    });
+  }
+
+  private async assertSkuAvailable(sku?: string | null, excludeId?: string) {
+    if (!sku) return;
+    const duplicate = await this.prisma.product.findFirst({
+      where: { sku, id: excludeId ? { not: excludeId } : undefined },
+      select: { id: true },
+    });
+    if (duplicate) throw new ConflictException('SKU already exists');
   }
 
   async remove(id: string) {

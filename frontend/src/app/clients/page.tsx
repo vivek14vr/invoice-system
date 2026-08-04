@@ -10,7 +10,6 @@ import {
   PageHeader,
   PrimaryButton,
   SearchInput,
-  StatusBadge,
 } from "@/components/ui";
 
 export default function ClientsPage() {
@@ -75,14 +74,13 @@ export default function ClientsPage() {
                 <th className="px-4 py-3 font-medium">Client</th>
                 <th className="px-4 py-3 font-medium">Contact</th>
                 <th className="px-4 py-3 font-medium">Location</th>
-                <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {clients.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={4}>
                     <EmptyState
                       icon={<Users className="h-7 w-7" />}
                       title="No clients found."
@@ -124,9 +122,6 @@ export default function ClientsPage() {
                     <td className="px-4 py-3 text-slate-600">
                       {[client.city, client.state].filter(Boolean).join(", ") ||
                         "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={client.status || "Active"} />
                     </td>
                     <td className="px-4 py-3">
                       <button

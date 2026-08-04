@@ -61,7 +61,6 @@ export type Client = {
   country?: string | null;
   vatGstNumber?: string | null;
   taxCodePan?: string | null;
-  status: string;
 };
 
 export type Invoice = {

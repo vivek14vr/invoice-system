@@ -33,7 +33,9 @@ export function Sidebar() {
           <FileText className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-slate-900">Mamaji Company</p>
+          <p className="text-sm font-semibold text-slate-900">
+            Girijasoft Pvt Ltd
+          </p>
           <p className="text-xs text-slate-500">Invoice System</p>
         </div>
       </div>
@@ -84,7 +86,7 @@ export function Sidebar() {
           </button>
         </div>
         <p className="mt-3 text-center text-[11px] text-slate-400">
-          Powered by Mamaji
+          Powered by Girijasoft
         </p>
       </div>
     </aside>
