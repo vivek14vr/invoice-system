@@ -19,11 +19,11 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/girjasoft_logo-removebg-preview.png",
-        type: "image/png",
+        url: "/favicon.ico?v=20260807",
+        type: "image/x-icon",
       },
     ],
-    shortcut: "/girjasoft_logo-removebg-preview.png",
+    shortcut: "/favicon.ico?v=20260807",
     apple: "/girjasoft_logo-removebg-preview.png",
   },
 };
