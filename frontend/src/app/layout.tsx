@@ -16,6 +16,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "girjasoft Invoices",
   description: "Client management and invoicing system",
+  icons: {
+    icon: [
+      {
+        url: "/girjasoft_logo-removebg-preview.png",
+        type: "image/png",
+      },
+    ],
+    shortcut: "/girjasoft_logo-removebg-preview.png",
+    apple: "/girjasoft_logo-removebg-preview.png",
+  },
 };
 
 export default function RootLayout({
