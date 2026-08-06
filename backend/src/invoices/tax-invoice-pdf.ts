@@ -1,4 +1,6 @@
 import PDFDocument from 'pdfkit';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 type SettingsMap = Record<string, string>;
 
@@ -30,6 +32,8 @@ type PdfItem = {
 
 type PdfInvoice = {
   invoiceNumber: string;
+  isCreditNote?: boolean;
+  taxType: 'INTRA_STATE' | 'INTER_STATE';
   issueDate: Date;
   dueDate?: Date | null;
   terms?: string | null;
@@ -53,6 +57,7 @@ type PdfInvoice = {
   discountPercent: number;
   discountAmount: number;
   taxAmount: number;
+  taxLines?: { name: string; rate: number }[];
   total: number;
   client: PdfClient;
   items: PdfItem[];
@@ -80,6 +85,25 @@ function drawImage(
   width: number,
   height: number,
 ) {
+  if (value?.startsWith('/')) {
+    const imagePath = resolve(
+      process.cwd(),
+      '../frontend/public',
+      value.slice(1),
+    );
+    if (existsSync(imagePath)) {
+      try {
+        doc.image(imagePath, x, y, {
+          fit: [width, height],
+          align: 'center',
+          valign: 'center',
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
   const image = imageFromDataUrl(value);
   if (!image) return false;
   try {
@@ -301,7 +325,7 @@ export async function buildTaxInvoicePdf(
   strokeRect(doc, left, outer, width, bottom - outer);
 
   let y = outer + 8;
-  write(doc, 'TAX INVOICE', left, y, {
+  write(doc, invoice.isCreditNote ? 'CREDIT NOTE' : 'TAX INVOICE', left, y, {
     size: 13,
     bold: true,
     width,
@@ -321,9 +345,10 @@ export async function buildTaxInvoicePdf(
   const rightW = width - leftW;
   const rx = left + leftW;
   const headerTop = y;
-  const headerH = 188;
+  // Keep enough room for a full consignee address so it cannot overlap Buyer.
+  const headerH = 232;
   const sellerH = 70;
-  const consigneeH = 36;
+  const consigneeH = 80;
 
   // Left / right vertical split for header
   vLine(doc, rx, headerTop, headerTop + headerH);
@@ -332,7 +357,7 @@ export async function buildTaxInvoicePdf(
   // ---- Seller (top-left) ----
   const hasLogo = drawImage(
     doc,
-    settings.company_logo,
+    settings.company_logo || '/girjasoft_logo-removebg-preview.png',
     left + 6,
     headerTop + 8,
     56,
@@ -410,7 +435,10 @@ export async function buildTaxInvoicePdf(
       size: 7,
       width: leftW - 10,
     });
-    cy += 10;
+    cy +=
+      doc.heightOfString(invoice.consigneeAddress, {
+        width: leftW - 10,
+      }) + 2;
   }
   if (invoice.consigneeGstin) {
     write(doc, `GSTIN/UIN: ${invoice.consigneeGstin}`, left + 5, cy, {
@@ -637,7 +665,7 @@ export async function buildTaxInvoicePdf(
     iy += Math.max(rowH, 16);
   }
 
-  // Tax rate from line items (prefer first non-zero), split CGST/SGST
+  // Tax rate from line items (prefer first non-zero), split by place of supply.
   const itemRate =
     invoice.items.find((it) => it.taxRate > 0)?.taxRate ??
     (invoice.taxAmount > 0 && invoice.subtotal > 0
@@ -691,21 +719,47 @@ export async function buildTaxInvoicePdf(
   }
 
   if (invoice.taxAmount > 0) {
-    // Match sample: rate % in description area, amount on right
-    write(doc, `${halfRate}%`, left + cols[0].w + 4, totY, { size: 8 });
-    write(doc, money(halfTax), amtColX + 2, totY, {
-      size: 8,
-      width: cols[cols.length - 1].w - 4,
-      align: 'right',
-    });
-    totY += 12;
-    write(doc, `${halfRate}%`, left + cols[0].w + 4, totY, { size: 8 });
-    write(doc, money(halfTax), amtColX + 2, totY, {
-      size: 8,
-      width: cols[cols.length - 1].w - 4,
-      align: 'right',
-    });
-    totY += 14;
+    const validTaxLines = (invoice.taxLines ?? []).filter(
+      (tax): tax is { name: string; rate: number } =>
+        typeof tax?.name === 'string' &&
+        tax.name.trim().length > 0 &&
+        Number.isFinite(Number(tax.rate)) &&
+        Number(tax.rate) > 0,
+    );
+    const taxLineRate = validTaxLines.reduce(
+      (sum, tax) => sum + Number(tax.rate),
+      0,
+    );
+    const taxRows =
+      validTaxLines.length && taxLineRate > 0
+        ? validTaxLines.map(
+            (tax) =>
+              [
+                `${tax.name} ${Number(tax.rate)}%`,
+                invoice.taxAmount * (Number(tax.rate) / taxLineRate),
+              ] as const,
+          )
+        : invoice.taxType === 'INTRA_STATE'
+          ? ([
+              [`${settings.tax_cgst_name || 'CGST'} ${halfRate}%`, halfTax],
+              [`${settings.tax_sgst_name || 'SGST'} ${halfRate}%`, halfTax],
+            ] as const)
+          : ([
+              [
+                `${settings.tax_igst_name || 'IGST'} ${itemRate}%`,
+                invoice.taxAmount,
+              ],
+            ] as const);
+    for (const [label, amount] of taxRows) {
+      write(doc, label, left + cols[0].w + 4, totY, { size: 8 });
+      write(doc, money(amount), amtColX + 2, totY, {
+        size: 8,
+        width: cols[cols.length - 1].w - 4,
+        align: 'right',
+      });
+      totY += 12;
+    }
+    totY += 2;
   }
 
   write(doc, `Rs ${money(invoice.total)}`, amtColX - 8, tableBottom - 16, {

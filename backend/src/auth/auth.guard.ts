@@ -9,6 +9,8 @@ import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { SESSION_COOKIE } from './auth.constants';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { ADMIN_ONLY_KEY } from './admin.decorator';
+import { ForbiddenException } from '@nestjs/common';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -28,6 +30,19 @@ export class AuthGuard implements CanActivate {
     const token = request.cookies?.[SESSION_COOKIE] as string | undefined;
     const user = await this.authService.validateSession(token);
     if (!user) throw new UnauthorizedException('Authentication required');
+    const adminOnly = this.reflector.getAllAndOverride<boolean>(
+      ADMIN_ONLY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (adminOnly && user.role !== 'ADMIN')
+      throw new ForbiddenException('Administrator access required');
+    if (
+      user.role === 'READ_ONLY' &&
+      request.method !== 'GET' &&
+      request.path !== '/auth/logout'
+    ) {
+      throw new ForbiddenException('Read-only users cannot modify data');
+    }
     Object.assign(request, { user });
     return true;
   }

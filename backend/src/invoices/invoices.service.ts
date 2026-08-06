@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus } from '../generated/prisma/enums';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateInvoiceDto,
@@ -13,9 +14,31 @@ function money(n: number) {
 }
 
 function renderNumber(template: string, year: number, id: number) {
+  const idToken = '{{{id}}}';
+  const idTokenPosition = template.indexOf(idToken);
+  const literalBeforeNumber =
+    idTokenPosition >= 0 ? template.slice(0, idTokenPosition) : '';
+  // A run of zeroes directly before the number is an explicit number format
+  // (for example, `000{{{id}}}` becomes `0001`). Legacy templates without
+  // those zeroes retain the standard four-digit sequence.
+  const hasExplicitLeadingZeroes = /0+$/.test(literalBeforeNumber);
+  const sequence = hasExplicitLeadingZeroes
+    ? String(id)
+    : String(id).padStart(4, '0');
+
   return template
     .replace(/\{\{\{year\}\}\}/g, String(year))
-    .replace(/\{\{\{id\}\}\}/g, String(id).padStart(4, '0'));
+    .replace(/\{\{\{id\}\}\}/g, sequence);
+}
+
+function stateCode(value?: string | null) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return '';
+  const codes: Record<string, string> = {
+    up: '09',
+    'uttar pradesh': '09',
+  };
+  return codes[normalized] ?? normalized;
 }
 
 function computeTotals(items: InvoiceItemDto[], discountPercent = 0) {
@@ -86,6 +109,30 @@ export class InvoicesService {
     return { invoiceNumber, invoiceGroupId: group?.id ?? null };
   }
 
+  private async taxContext(client: {
+    state?: string | null;
+    stateCode?: string | null;
+  }) {
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: ['company_state', 'company_state_code'] } },
+    });
+    const settings = Object.fromEntries(
+      rows.map((row) => [row.key, row.value]),
+    );
+    const sellerCode =
+      stateCode(settings.company_state_code) ||
+      stateCode(settings.company_state) ||
+      '09';
+    const buyerCode =
+      stateCode(client.stateCode) || stateCode(client.state) || sellerCode;
+    return {
+      taxType:
+        buyerCode === sellerCode
+          ? ('INTRA_STATE' as const)
+          : ('INTER_STATE' as const),
+    };
+  }
+
   async findAll(search?: string, status?: InvoiceStatus) {
     const invoices = await this.prisma.invoice.findMany({
       where: {
@@ -130,7 +177,7 @@ export class InvoicesService {
     return invoice;
   }
 
-  async create(dto: CreateInvoiceDto) {
+  async create(dto: CreateInvoiceDto, companyId?: string | null) {
     const client = await this.prisma.client.findUnique({
       where: { id: dto.clientId },
     });
@@ -142,11 +189,15 @@ export class InvoicesService {
     const { invoiceNumber, invoiceGroupId } = await this.nextInvoiceNumber(
       dto.invoiceGroupId,
     );
+    const finalInvoiceNumber = `${dto.invoiceNumberPrefix ?? ''}${invoiceNumber}${dto.invoiceNumberSuffix ?? ''}`;
 
     return this.prisma.invoice.create({
       data: {
-        invoiceNumber,
+        invoiceNumber: finalInvoiceNumber,
+        invoiceNumberPrefix: dto.invoiceNumberPrefix,
+        invoiceNumberSuffix: dto.invoiceNumberSuffix,
         clientId: dto.clientId,
+        companyId: companyId ?? undefined,
         invoiceGroupId,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
         dueDate: new Date(dto.dueDate),
@@ -156,6 +207,7 @@ export class InvoicesService {
         discountAmount,
         subtotal,
         taxAmount,
+        taxLines: dto.taxLines as unknown as Prisma.InputJsonValue,
         total,
         notes: dto.notes,
         terms: dto.terms,
@@ -198,7 +250,31 @@ export class InvoicesService {
   async update(id: string, dto: UpdateInvoiceDto) {
     const existing = await this.findOne(id);
 
+    const client = dto.clientId
+      ? await this.prisma.client.findUnique({ where: { id: dto.clientId } })
+      : existing.client;
+    if (!client) throw new NotFoundException('Client not found');
     const data: Record<string, unknown> = {};
+    if (dto.clientId) data.clientId = dto.clientId;
+    if (dto.taxLines !== undefined) data.taxLines = dto.taxLines;
+    if (
+      dto.invoiceNumberPrefix !== undefined ||
+      dto.invoiceNumberSuffix !== undefined
+    ) {
+      const prefix =
+        dto.invoiceNumberPrefix ?? existing.invoiceNumberPrefix ?? '';
+      const suffix =
+        dto.invoiceNumberSuffix ?? existing.invoiceNumberSuffix ?? '';
+      const baseNumber = existing.invoiceNumber.slice(
+        (existing.invoiceNumberPrefix ?? '').length,
+        existing.invoiceNumberSuffix
+          ? -existing.invoiceNumberSuffix.length
+          : undefined,
+      );
+      data.invoiceNumberPrefix = prefix;
+      data.invoiceNumberSuffix = suffix;
+      data.invoiceNumber = `${prefix}${baseNumber}${suffix}`;
+    }
     if (dto.issueDate) data.issueDate = new Date(dto.issueDate);
     if (dto.dueDate !== undefined) {
       data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
@@ -244,7 +320,7 @@ export class InvoicesService {
       data.consigneeStateCode = dto.consigneeStateCode;
     }
 
-    if (dto.items || dto.discountPercent !== undefined) {
+    if (dto.items || dto.discountPercent !== undefined || dto.clientId) {
       const items =
         dto.items ??
         existing.items.map((item) => ({
@@ -290,6 +366,54 @@ export class InvoicesService {
     });
   }
 
+  async createCreditNote(id: string, reason?: string) {
+    const original = await this.findOne(id);
+    if (original.status === InvoiceStatus.CREDIT_NOTE) {
+      throw new NotFoundException(
+        'A credit note cannot be created from another credit note',
+      );
+    }
+    const { invoiceNumber: sequenceNumber, invoiceGroupId } =
+      await this.nextInvoiceNumber(original.invoiceGroupId ?? undefined);
+    const creditNoteNumber = `CN-${sequenceNumber}`;
+    const subtotal = money(-Number(original.subtotal));
+    const taxAmount = money(-Number(original.taxAmount));
+    const total = money(-Number(original.total));
+    const note = await this.prisma.invoice.create({
+      data: {
+        invoiceNumber: creditNoteNumber,
+        creditNoteNumber,
+        creditNoteForId: original.id,
+        creditNoteReason: reason,
+        companyId: original.companyId,
+        clientId: original.clientId,
+        invoiceGroupId,
+        issueDate: new Date(),
+        dueDate: new Date(),
+        status: InvoiceStatus.CREDIT_NOTE,
+        taxRate: Number(original.taxRate),
+        subtotal,
+        taxAmount,
+        total,
+        taxLines: original.taxLines ?? undefined,
+        items: {
+          create: original.items.map((item) => ({
+            name: item.name,
+            description: item.description,
+            hsnSac: item.hsnSac,
+            unit: item.unit,
+            quantity: Number(item.quantity),
+            unitPrice: -Number(item.unitPrice),
+            taxRate: Number(item.taxRate),
+            amount: -Number(item.amount),
+          })),
+        },
+      },
+      include: { client: true, items: true },
+    });
+    return note;
+  }
+
   async remove(id: string) {
     await this.findOne(id);
     await this.prisma.invoice.delete({ where: { id } });
@@ -306,6 +430,8 @@ export class InvoicesService {
     return buildTaxInvoicePdf(
       {
         invoiceNumber: invoice.invoiceNumber,
+        isCreditNote: invoice.status === InvoiceStatus.CREDIT_NOTE,
+        taxType: (await this.taxContext(invoice.client)).taxType,
         issueDate: invoice.issueDate,
         dueDate: invoice.dueDate,
         terms: invoice.terms,
@@ -329,6 +455,9 @@ export class InvoicesService {
         discountPercent: Number(invoice.discountPercent),
         discountAmount: Number(invoice.discountAmount),
         taxAmount: Number(invoice.taxAmount),
+        taxLines: Array.isArray(invoice.taxLines)
+          ? (invoice.taxLines as { name: string; rate: number }[])
+          : undefined,
         total: Number(invoice.total),
         client: invoice.client,
         items: invoice.items.map((item) => ({

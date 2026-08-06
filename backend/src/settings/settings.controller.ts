@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   CreateInvoiceGroupDto,
+  UpdateInvoiceGroupDto,
   CreatePaymentMethodDto,
   CreateTaxRateDto,
   UpdateSettingsDto,
@@ -52,6 +53,14 @@ export class SettingsController {
   @Post('invoice-groups')
   createInvoiceGroup(@Body() dto: CreateInvoiceGroupDto) {
     return this.settingsService.createInvoiceGroup(dto);
+  }
+
+  @Patch('invoice-groups/:id')
+  updateInvoiceGroup(
+    @Param('id') id: string,
+    @Body() dto: UpdateInvoiceGroupDto,
+  ) {
+    return this.settingsService.updateInvoiceGroup(id, dto);
   }
 
   @Delete('invoice-groups/:id')

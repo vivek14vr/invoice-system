@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, Plus, Trash2 } from "lucide-react";
 import { api, Invoice } from "@/lib/api";
@@ -18,6 +19,7 @@ const filters = ["ALL", "DRAFT", "SENT", "PAID", "CANCELLED"] as const;
 const invoiceStatuses = filters.filter((filter) => filter !== "ALL");
 
 export default function InvoicesPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<(typeof filters)[number]>("ALL");
@@ -150,15 +152,22 @@ export default function InvoicesPage() {
                 invoices.map((inv) => (
                   <tr
                     key={inv.id}
-                    className="border-b border-slate-100 last:border-0"
+                    className="group cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50 last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`Open invoice ${inv.invoiceNumber}`}
+                    onClick={() => router.push(`/invoices/${inv.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push(`/invoices/${inv.id}`);
+                      }
+                    }}
                   >
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/invoices/${inv.id}`}
-                        className="font-medium text-slate-900 hover:text-blue-600"
-                      >
+                      <span className="font-medium text-slate-900 group-hover:text-blue-600">
                         {inv.invoiceNumber}
-                      </Link>
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
                       {inv.client?.name ?? "—"}
@@ -173,7 +182,10 @@ export default function InvoicesPage() {
                       {formatMoney(inv.total)}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div
+                        className="flex items-center gap-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <StatusBadge status={inv.status} />
                         <select
                           aria-label={`Change status for ${inv.invoiceNumber}`}
@@ -201,12 +213,16 @@ export default function InvoicesPage() {
                           rel="noreferrer"
                           title="Download PDF"
                           className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <Download className="h-4 w-4" />
                         </a>
                         <button
                           type="button"
-                          onClick={() => remove(inv.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void remove(inv.id);
+                          }}
                           title="Delete invoice"
                           className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                         >

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
-import { api, Client, SettingsPayload } from "@/lib/api";
+import { api, Client, Product, SettingsPayload } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import {
   Card,
@@ -45,7 +45,9 @@ function defaultValidUntil() {
 export default function NewQuotationPage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [taxRates, setTaxRates] = useState<SettingsPayload["taxRates"]>([]);
+  const [selectedTaxRateIds, setSelectedTaxRateIds] = useState<string[]>([]);
   const [groups, setGroups] = useState<SettingsPayload["invoiceGroups"]>([]);
   const [clientSearch, setClientSearch] = useState("");
   const [clientId, setClientId] = useState("");
@@ -53,38 +55,40 @@ export default function NewQuotationPage() {
   const [validUntil, setValidUntil] = useState(defaultValidUntil());
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([
-    { name: "", description: "", quantity: "1", unitPrice: "", taxRate: 0 },
+    { name: "", description: "", quantity: "1", unitPrice: "", taxRate: 18 },
   ]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showClientList, setShowClientList] = useState(false);
+  const [productSearchIndex, setProductSearchIndex] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([
       api.get<Client[]>("/clients"),
+      api.get<Product[]>("/products"),
       api.get<SettingsPayload>("/settings"),
     ])
-      .then(([c, s]) => {
+      .then(([c, p, s]) => {
         setClients(c);
+        setProducts(p);
         setTaxRates(s.taxRates);
         const quoteGroups = s.invoiceGroups.filter((g) =>
           g.name.toLowerCase().includes("quot"),
         );
         const series = quoteGroups.length ? quoteGroups : s.invoiceGroups;
         setGroups(series);
-        if (series[0]) setInvoiceGroupId(series[0].id);
+        const defaultSeries = series.find((group) => group.isDefault) ?? series[0];
+        if (defaultSeries) setInvoiceGroupId(defaultSeries.id);
         const expiresAfter = Number(s.settings.quotes_expire_after || 15);
         if (Number.isFinite(expiresAfter) && expiresAfter >= 0) {
           const expiry = new Date();
           expiry.setDate(expiry.getDate() + expiresAfter);
           setValidUntil(expiry.toISOString().slice(0, 10));
         }
-        const noTax = s.taxRates.find((t) => Number(t.rate) === 0);
-        if (noTax) {
-          setItems((prev) =>
-            prev.map((item) => ({ ...item, taxRate: Number(noTax.rate) })),
-          );
-        }
+        const defaultTaxRate = Number(s.taxRates.find((rate) => rate.isDefault)?.rate ?? 18);
+        setItems((prev) => prev.map((item) => ({ ...item, taxRate: defaultTaxRate })));
+        const defaultTax = s.taxRates.find((rate) => rate.isDefault) ?? s.taxRates.find((rate) => Number(rate.rate) === 18);
+        if (defaultTax) setSelectedTaxRateIds([defaultTax.id]);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -101,11 +105,12 @@ export default function NewQuotationPage() {
   }, [clients, clientSearch]);
 
   const selectedClient = clients.find((c) => c.id === clientId);
+  const quotationTaxRate = taxRates.filter((rate) => selectedTaxRateIds.includes(rate.id)).reduce((sum, rate) => sum + Number(rate.rate), 0);
 
   const totals = useMemo(() => {
     const lines = items.map((item) => {
       const subtotal = toAmount(item.quantity) * toAmount(item.unitPrice);
-      const tax = (subtotal * item.taxRate) / 100;
+      const tax = (subtotal * quotationTaxRate) / 100;
       return { subtotal, tax, total: subtotal + tax };
     });
     const lineTotals = lines.map((line) => line.total);
@@ -117,12 +122,24 @@ export default function NewQuotationPage() {
       taxAmount,
       grandTotal: subtotal + taxAmount,
     };
-  }, [items]);
+  }, [items, quotationTaxRate]);
 
   function updateItem(index: number, patch: Partial<LineItem>) {
     setItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, ...patch } : item)),
     );
+  }
+
+  function filteredProducts(query: string) {
+    const q = query.trim().toLowerCase();
+    if (!q) return products.slice(0, 8);
+    return products
+      .filter(
+        (product) =>
+          product.name.toLowerCase().includes(q) ||
+          product.sku?.toLowerCase().includes(q),
+      )
+      .slice(0, 8);
   }
 
   async function onSubmit(e: FormEvent) {
@@ -149,7 +166,7 @@ export default function NewQuotationPage() {
           description: i.description.trim() || undefined,
           quantity: toAmount(i.quantity),
           unitPrice: toAmount(i.unitPrice),
-          taxRate: i.taxRate,
+          taxRate: quotationTaxRate,
         })),
       });
       router.push("/quotations");
@@ -303,9 +320,7 @@ export default function NewQuotationPage() {
                     description: "",
                     quantity: "1",
                     unitPrice: "",
-                    taxRate: Number(
-                      taxRates.find((t) => Number(t.rate) === 0)?.rate ?? 0,
-                    ),
+                    taxRate: Number(taxRates.find((rate) => rate.isDefault)?.rate ?? 18),
                   },
                 ])
               }
@@ -315,26 +330,66 @@ export default function NewQuotationPage() {
             </PrimaryButton>
           </div>
 
+          <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-2 text-sm font-medium text-slate-700">Quotation Tax Rates</p>
+            <div className="flex flex-wrap gap-3">
+              {taxRates.map((rate) => (
+                <label key={rate.id} className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={selectedTaxRateIds.includes(rate.id)} onChange={() => setSelectedTaxRateIds((current) => current.includes(rate.id) ? current.filter((id) => id !== rate.id) : [...current, rate.id])} />
+                  {rate.name} ({Number(rate.rate)}%)
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Selected taxes apply to the entire quotation. Combined rate: {quotationTaxRate}%.</p>
+          </div>
+
           <div className="space-y-4">
             {items.map((item, index) => (
               <div
                 key={index}
                 className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
               >
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_5.5rem_7rem_9rem_8.5rem]">
-                  <div className="min-w-0 space-y-2">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_5.5rem_7rem_auto]">
+                  <div className="relative min-w-0 space-y-2">
                     <label className="text-xs font-medium text-slate-500">
                       Item Name <span className="text-rose-500">*</span>
                     </label>
                     <input
                       required
                       className={inputClass}
-                      placeholder="Item name..."
+                      placeholder="Item name or search product..."
                       value={item.name}
-                      onChange={(e) =>
-                        updateItem(index, { name: e.target.value })
-                      }
+                      onFocus={() => setProductSearchIndex(index)}
+                      onChange={(e) => {
+                        updateItem(index, { name: e.target.value });
+                        setProductSearchIndex(index);
+                      }}
                     />
+                    {productSearchIndex === index &&
+                    filteredProducts(item.name).length > 0 ? (
+                      <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                        {filteredProducts(item.name).map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                            onClick={() => {
+                              updateItem(index, {
+                                name: product.name,
+                                description: product.description ?? "",
+                                unitPrice: String(Number(product.price)),
+                              });
+                              setProductSearchIndex(null);
+                            }}
+                          >
+                            <span className="font-medium">{product.name}</span>
+                            <span className="ml-2 text-slate-400">
+                              {formatMoney(product.price)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <input
                       className={inputClass}
                       placeholder="Description (optional)"
@@ -380,26 +435,6 @@ export default function NewQuotationPage() {
                       }
                     />
                   </div>
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-slate-500">
-                      Tax Rate
-                    </label>
-                    <select
-                      className={`${inputClass} mt-2`}
-                      value={item.taxRate}
-                      onChange={(e) =>
-                        updateItem(index, {
-                          taxRate: Number(e.target.value),
-                        })
-                      }
-                    >
-                      {taxRates.map((t) => (
-                        <option key={t.id} value={Number(t.rate)}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
                   <div className="flex min-w-0 items-start justify-end gap-2 pt-6">
                     <span
                       className="min-w-0 truncate text-right text-sm font-semibold tabular-nums text-emerald-600"
@@ -430,12 +465,9 @@ export default function NewQuotationPage() {
                 {formatMoney(totals.subtotal)}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-4 text-slate-600">
-              <span className="shrink-0">Tax</span>
-              <span className="min-w-0 truncate text-right tabular-nums">
-                {formatMoney(totals.taxAmount)}
-              </span>
-            </div>
+            {taxRates.filter((rate) => selectedTaxRateIds.includes(rate.id)).map((rate) => (
+              <div key={rate.id} className="flex items-center justify-between gap-4 text-slate-600"><span>{rate.name} ({Number(rate.rate)}%)</span><span>{formatMoney(quotationTaxRate ? (totals.taxAmount * Number(rate.rate)) / quotationTaxRate : 0)}</span></div>
+            ))}
             <div className="flex items-center justify-between gap-4 text-base font-semibold text-emerald-600">
               <span className="shrink-0">Grand Total</span>
               <span className="min-w-0 truncate text-right tabular-nums">

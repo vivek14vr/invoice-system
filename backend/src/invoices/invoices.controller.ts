@@ -8,10 +8,16 @@ import {
   Post,
   Query,
   Res,
+  Req,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import type { Request } from 'express';
 import { InvoiceStatus } from '../generated/prisma/enums';
-import { CreateInvoiceDto, UpdateInvoiceDto } from './dto/invoice.dto';
+import {
+  CreateCreditNoteDto,
+  CreateInvoiceDto,
+  UpdateInvoiceDto,
+} from './dto/invoice.dto';
 import { InvoicesService } from './invoices.service';
 
 @Controller('invoices')
@@ -44,13 +50,21 @@ export class InvoicesController {
   }
 
   @Post()
-  create(@Body() dto: CreateInvoiceDto) {
-    return this.invoicesService.create(dto);
+  create(
+    @Body() dto: CreateInvoiceDto,
+    @Req() request: Request & { user: { companyId?: string | null } },
+  ) {
+    return this.invoicesService.create(dto, request.user.companyId);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateInvoiceDto) {
     return this.invoicesService.update(id, dto);
+  }
+
+  @Post(':id/credit-note')
+  creditNote(@Param('id') id: string, @Body() dto: CreateCreditNoteDto) {
+    return this.invoicesService.createCreditNote(id, dto.reason);
   }
 
   @Delete(':id')

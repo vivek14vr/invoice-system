@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Eye, FilePlus2, Plus, Trash2 } from "lucide-react";
 import { api, Quotation } from "@/lib/api";
@@ -25,6 +26,7 @@ const filters = [
 const quoteStatuses = filters.filter((filter) => filter !== "ALL");
 
 export default function QuotationsPage() {
+  const router = useRouter();
   const [quotes, setQuotes] = useState<Quotation[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<(typeof filters)[number]>("ALL");
@@ -156,21 +158,34 @@ export default function QuotationsPage() {
                 </tr>
               ) : (
                 quotes.map((q) => (
-                  <tr key={q.id} className="border-b border-slate-100">
+                  <tr
+                    key={q.id}
+                    className="group cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50 last:border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`Open quotation ${q.quoteNumber}`}
+                    onClick={() => router.push(`/quotations/${q.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push(`/quotations/${q.id}`);
+                      }
+                    }}
+                  >
                     <td className="px-4 py-3 font-medium">
-                      <Link
-                        href={`/quotations/${q.id}`}
-                        className="text-slate-900 hover:text-blue-600"
-                      >
+                      <span className="text-slate-900 group-hover:text-blue-600">
                         {q.quoteNumber}
-                      </Link>
+                      </span>
                     </td>
                     <td className="px-4 py-3">{q.client?.name ?? "—"}</td>
                     <td className="px-4 py-3">{formatDate(q.issueDate)}</td>
                     <td className="px-4 py-3">{formatDate(q.validUntil)}</td>
                     <td className="px-4 py-3">{formatMoney(q.total)}</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div
+                        className="flex items-center gap-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <StatusBadge status={q.status} />
                         <select
                           aria-label={`Change status for ${q.quoteNumber}`}
@@ -196,12 +211,16 @@ export default function QuotationsPage() {
                           href={`/quotations/${q.id}`}
                           title="View quotation"
                           className="rounded-md p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <Eye className="h-4 w-4" />
                         </Link>
                         <button
                           type="button"
-                          onClick={() => remove(q.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void remove(q.id);
+                          }}
                           title="Delete quotation"
                           className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                         >

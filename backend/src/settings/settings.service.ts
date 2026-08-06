@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateInvoiceGroupDto,
+  UpdateInvoiceGroupDto,
   CreatePaymentMethodDto,
   CreateTaxRateDto,
 } from './dto/settings.dto';
@@ -39,6 +40,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   company_logo: '',
   company_stamp: '',
   default_consignee: 'Not Applicable',
+  tax_cgst_name: 'CGST',
+  tax_sgst_name: 'SGST',
+  tax_igst_name: 'IGST',
+  tax_rate_name: 'GST',
 };
 
 const BRANDING_KEYS = new Set(['company_logo', 'company_stamp']);
@@ -208,6 +213,17 @@ export class SettingsService implements OnModuleInit {
         nextId: dto.nextId ?? 1,
         isDefault: dto.isDefault ?? false,
       },
+    });
+  }
+
+  async updateInvoiceGroup(id: string, dto: UpdateInvoiceGroupDto) {
+    const group = await this.prisma.invoiceGroup.findUnique({ where: { id } });
+    if (!group) throw new NotFoundException('Invoice group not found');
+    return this.prisma.$transaction(async (tx) => {
+      if (dto.isDefault) {
+        await tx.invoiceGroup.updateMany({ data: { isDefault: false } });
+      }
+      return tx.invoiceGroup.update({ where: { id }, data: dto });
     });
   }
 

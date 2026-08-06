@@ -50,7 +50,10 @@ export const api = {
   pdfUrl: (invoiceId: string) => `${API_URL}/invoices/${invoiceId}/pdf`,
 };
 
-export type AuthUser = { id: string; email: string; name: string };
+export type AuthUser = { id: string; email: string; name: string; role?: "ADMIN" | "READ_ONLY"; companyId?: string | null };
+
+export type Company = { id: string; name: string; legalName?: string | null; gstin?: string | null; state?: string | null; stateCode?: string | null };
+export type ManagedUser = AuthUser & { company?: Company | null };
 
 export type AuthResponse = {
   user: AuthUser;
@@ -81,6 +84,8 @@ export type Client = {
 export type Invoice = {
   id: string;
   invoiceNumber: string;
+  invoiceNumberPrefix?: string | null;
+  invoiceNumberSuffix?: string | null;
   clientId: string;
   client?: Client;
   issueDate: string;

@@ -46,6 +46,17 @@ export class InvoiceItemDto {
   taxRate!: number;
 }
 
+export class InvoiceTaxLineDto {
+  @IsString()
+  @MinLength(1)
+  name!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  rate!: number;
+}
+
 export class CreateInvoiceDto {
   @IsString()
   clientId!: string;
@@ -53,6 +64,20 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsString()
   invoiceGroupId?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceNumberPrefix?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceNumberSuffix?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InvoiceTaxLineDto)
+  taxLines?: InvoiceTaxLineDto[];
 
   @IsOptional()
   @IsDateString()
@@ -148,6 +173,23 @@ export class CreateInvoiceDto {
 
 export class UpdateInvoiceDto {
   @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceNumberPrefix?: string;
+
+  @IsOptional()
+  @IsString()
+  invoiceNumberSuffix?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InvoiceTaxLineDto)
+  taxLines?: InvoiceTaxLineDto[];
+  @IsOptional()
   @IsDateString()
   issueDate?: string;
 
@@ -239,4 +281,10 @@ export class UpdateInvoiceDto {
   @ValidateNested({ each: true })
   @Type(() => InvoiceItemDto)
   items?: InvoiceItemDto[];
+}
+
+export class CreateCreditNoteDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }

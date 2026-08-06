@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Download, Save } from "lucide-react";
-import { api, Invoice } from "@/lib/api";
+import { Download, FileMinus, Plus, Save, Trash2 } from "lucide-react";
+import { api, Client, Invoice } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PageLoader } from "@/components/Loader";
 import {
@@ -21,6 +21,15 @@ function toDateInput(value?: string | null) {
   return value.slice(0, 10);
 }
 
+type EditableItem = {
+  name: string;
+  description: string;
+  hsnSac: string;
+  unit: string;
+  quantity: string;
+  unitPrice: string;
+};
+
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -28,6 +37,10 @@ export default function InvoiceDetailPage() {
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
+  const [creatingCreditNote, setCreatingCreditNote] = useState(false);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientId, setClientId] = useState("");
+  const [items, setItems] = useState<EditableItem[]>([]);
   const [meta, setMeta] = useState({
     terms: "",
     deliveryNote: "",
@@ -48,10 +61,22 @@ export default function InvoiceDetailPage() {
   });
 
   useEffect(() => {
-    api
-      .get<Invoice>(`/invoices/${params.id}`)
-      .then((inv) => {
+    Promise.all([
+      api.get<Invoice>(`/invoices/${params.id}`),
+      api.get<Client[]>("/clients"),
+    ])
+      .then(([inv, allClients]) => {
         setInvoice(inv);
+        setClients(allClients);
+        setClientId(inv.clientId);
+        setItems((inv.items ?? []).map((item) => ({
+          name: item.name ?? "",
+          description: item.description ?? "",
+          hsnSac: item.hsnSac ?? "",
+          unit: item.unit ?? "Nos",
+          quantity: String(item.quantity),
+          unitPrice: String(item.unitPrice),
+        })));
         setMeta({
           terms: inv.terms ?? "",
           deliveryNote: inv.deliveryNote ?? "",
@@ -96,6 +121,19 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  async function createCreditNote() {
+    if (!invoice || !window.confirm("Create a credit note for this invoice?")) return;
+    setCreatingCreditNote(true);
+    setError("");
+    try {
+      const note = await api.post<Invoice>(`/invoices/${invoice.id}/credit-note`, { reason: "Customer refund / reimbursement" });
+      window.location.assign(`/invoices/${note.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create credit note");
+      setCreatingCreditNote(false);
+    }
+  }
+
   async function saveMeta(e: FormEvent) {
     e.preventDefault();
     if (!invoice) return;
@@ -105,6 +143,19 @@ export default function InvoiceDetailPage() {
     try {
       const opt = (v: string) => (v.trim() ? v.trim() : "");
       const updated = await api.patch<Invoice>(`/invoices/${invoice.id}`, {
+        clientId,
+        items: items
+          .filter((item) => item.name.trim())
+          .map((item) => ({
+            ...item,
+            name: item.name.trim(),
+            description: item.description.trim() || undefined,
+            hsnSac: item.hsnSac.trim() || undefined,
+            unit: item.unit.trim() || "Nos",
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+            taxRate: Number(invoice.taxRate),
+          })),
         terms: opt(meta.terms),
         deliveryNote: opt(meta.deliveryNote),
         referenceNo: opt(meta.referenceNo),
@@ -123,7 +174,16 @@ export default function InvoiceDetailPage() {
         consigneeStateCode: opt(meta.consigneeStateCode),
       });
       setInvoice(updated);
-      setMessage("Invoice details saved. Download the PDF to see updates.");
+      setItems((updated.items ?? []).map((item) => ({
+        name: item.name ?? "",
+        description: item.description ?? "",
+        hsnSac: item.hsnSac ?? "",
+        unit: item.unit ?? "Nos",
+        quantity: String(item.quantity),
+        unitPrice: String(item.unitPrice),
+      })));
+      setClientId(updated.clientId);
+      setMessage("PDF details saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -142,12 +202,20 @@ export default function InvoiceDetailPage() {
         title={invoice.invoiceNumber}
         subtitle={`Invoice for ${invoice.client?.name ?? "client"}`}
         action={
-          <a href={api.pdfUrl(invoice.id)} target="_blank" rel="noreferrer">
-            <PrimaryButton>
-              <Download className="h-4 w-4" />
-              Download PDF
-            </PrimaryButton>
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a href={api.pdfUrl(invoice.id)} target="_blank" rel="noreferrer">
+              <PrimaryButton>
+                <Download className="h-4 w-4" />
+                Download PDF
+              </PrimaryButton>
+            </a>
+            {invoice.status !== "CREDIT_NOTE" ? (
+              <PrimaryButton variant="secondary" type="button" onClick={createCreditNote} disabled={creatingCreditNote}>
+                <FileMinus className="h-4 w-4" />
+                {creatingCreditNote ? "Creating..." : "Issue Credit Note"}
+              </PrimaryButton>
+            ) : null}
+          </div>
         }
       />
 
@@ -170,7 +238,7 @@ export default function InvoiceDetailPage() {
               disabled={savingStatus}
               onChange={(event) => updateStatus(event.target.value)}
             >
-              {['DRAFT', 'SENT', 'PAID', 'CANCELLED'].map((status) => (
+              {['DRAFT', 'SENT', 'PAID', 'CANCELLED', 'CREDIT_NOTE'].map((status) => (
                 <option key={status} value={status}>
                   {status.charAt(0) + status.slice(1).toLowerCase()}
                 </option>
@@ -226,6 +294,64 @@ export default function InvoiceDetailPage() {
       </Card>
 
       <form onSubmit={saveMeta} className="mb-6 space-y-6">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Edit Invoice
+              </h2>
+              <p className="text-xs text-slate-500">
+                Update the client and goods after generation. Invoice numbering is managed in Settings.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3">
+            <Field label="Client">
+              <select
+                className={inputClass}
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                required
+              >
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>{client.name}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="mt-5 space-y-3">
+            {items.map((item, index) => (
+              <div key={index} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1.4fr_1fr_7rem_7rem_5rem_auto]">
+                {(["name", "description", "quantity", "unitPrice", "hsnSac"] as const).map((key) => (
+                  <input
+                    key={key}
+                    className={inputClass}
+                    placeholder={{ name: "Goods name", description: "Description", quantity: "Qty", unitPrice: "Unit price", hsnSac: "HSN/SAC" }[key]}
+                    value={item[key]}
+                    required={key === "name"}
+                    onChange={(e) => setItems((prev) => prev.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: e.target.value } : row))}
+                  />
+                ))}
+                <button
+                  type="button"
+                  className="rounded-md p-2 text-rose-500 hover:bg-rose-50 disabled:opacity-40"
+                  disabled={items.length === 1}
+                  onClick={() => setItems((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}
+                  aria-label="Remove item"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+              onClick={() => setItems((prev) => [...prev, { name: "", description: "", hsnSac: "", unit: "Nos", quantity: "1", unitPrice: "0" }])}
+            >
+              <Plus className="h-4 w-4" /> Add goods
+            </button>
+          </div>
+        </Card>
         <div className="grid gap-6 lg:grid-cols-2">
           <Card className="p-5">
             <h2 className="mb-1 text-base font-semibold text-slate-900">
@@ -335,7 +461,10 @@ export default function InvoiceDetailPage() {
           </Card>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {message === "PDF details saved successfully." ? (
+            <span className="text-sm text-emerald-600">Saved successfully.</span>
+          ) : null}
           <PrimaryButton type="submit" disabled={saving}>
             <Save className="h-4 w-4" />
             {saving ? "Saving..." : "Save PDF Details"}

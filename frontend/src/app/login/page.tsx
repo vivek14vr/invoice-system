@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, FileText, LockKeyhole } from "lucide-react";
+import Image from "next/image";
+import { Eye, EyeOff, LockKeyhole } from "lucide-react";
 import { api, AuthResponse } from "@/lib/api";
 
 export default function LoginPage() {
@@ -41,11 +42,21 @@ export default function LoginPage() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.32),_transparent_42%),radial-gradient(circle_at_bottom_right,_rgba(14,165,233,0.2),_transparent_38%)]" />
       <div className="relative w-full max-w-md">
         <div className="mb-7 flex items-center justify-center gap-3 text-white">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-950/40">
-            <FileText className="h-6 w-6" />
-          </div>
+          <Image
+            src="/girjasoft_logo-removebg-preview.png"
+            alt="Girjasoft"
+            width={44}
+            height={44}
+            className="h-11 w-11 object-contain"
+          />
           <div>
-            <p className="text-lg font-semibold">girjasoft pvt ltd</p>
+            <Image
+              src="/girjasoft_name_logo-removebg-preview.png"
+              alt="Girjasoft"
+              width={180}
+              height={34}
+              className="h-6 w-auto brightness-0 invert"
+            />
             <p className="text-sm text-slate-400">Invoice System</p>
           </div>
         </div>

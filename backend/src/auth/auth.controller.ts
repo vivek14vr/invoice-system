@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { SESSION_COOKIE, SESSION_DURATION_MS } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 import { Public } from './public.decorator';
+import { AdminOnly } from './admin.decorator';
 
 type AuthenticatedRequest = Request & {
   user: { id: string; email: string; name: string };
@@ -47,6 +48,39 @@ export class AuthController {
   @Get('me')
   me(@Req() request: AuthenticatedRequest) {
     return { user: request.user };
+  }
+
+  @Get('users')
+  @AdminOnly()
+  users() {
+    return this.authService.listUsers();
+  }
+
+  @Post('users')
+  @AdminOnly()
+  createUser(
+    @Body()
+    dto: {
+      email: string;
+      name: string;
+      password: string;
+      role?: 'ADMIN' | 'READ_ONLY';
+      companyId?: string;
+    },
+  ) {
+    return this.authService.createUser(dto);
+  }
+
+  @Get('companies')
+  @AdminOnly()
+  companies() {
+    return this.authService.listCompanies();
+  }
+
+  @Post('companies')
+  @AdminOnly()
+  createCompany(@Body() dto: { name: string }) {
+    return this.authService.createCompany(dto.name);
   }
 
   @Post('logout')

@@ -45,17 +45,25 @@ function defaultDueDate() {
   return d.toISOString().slice(0, 10);
 }
 
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function NewInvoicePage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [taxRates, setTaxRates] = useState<SettingsPayload["taxRates"]>([]);
-  const [groups, setGroups] = useState<SettingsPayload["invoiceGroups"]>([]);
+  const [invoiceGroups, setInvoiceGroups] = useState<
+    SettingsPayload["invoiceGroups"]
+  >([]);
+  const [selectedTaxRateIds, setSelectedTaxRateIds] = useState<string[]>([]);
   const [clientSearch, setClientSearch] = useState("");
   const [clientId, setClientId] = useState("");
   const [showClientList, setShowClientList] = useState(false);
   const [invoiceGroupId, setInvoiceGroupId] = useState("");
   const [dueDate, setDueDate] = useState(defaultDueDate());
+  const [issueDate, setIssueDate] = useState(today());
   const [discountPercent, setDiscountPercent] = useState("0");
   const [terms, setTerms] = useState("");
   const [deliveryNote, setDeliveryNote] = useState("");
@@ -84,7 +92,7 @@ export default function NewInvoicePage() {
       unit: "Nos",
       quantity: "1",
       unitPrice: "",
-      taxRate: 0,
+      taxRate: 18,
     },
   ]);
   const [error, setError] = useState("");
@@ -100,12 +108,13 @@ export default function NewInvoicePage() {
         setClients(c);
         setProducts(p);
         setTaxRates(s.taxRates);
+        setInvoiceGroups(s.invoiceGroups);
         const invGroups = s.invoiceGroups.filter((g) =>
           g.name.toLowerCase().includes("invoice"),
         );
         const series = invGroups.length ? invGroups : s.invoiceGroups;
-        setGroups(series);
-        if (series[0]) setInvoiceGroupId(series[0].id);
+        const defaultSeries = series.find((group) => group.isDefault) ?? series[0];
+        if (defaultSeries) setInvoiceGroupId(defaultSeries.id);
         if (s.settings.default_invoice_terms) {
           setTerms(s.settings.default_invoice_terms);
         }
@@ -115,12 +124,10 @@ export default function NewInvoicePage() {
           d.setDate(d.getDate() + dueAfter);
           setDueDate(d.toISOString().slice(0, 10));
         }
-        const noTax = s.taxRates.find((t) => Number(t.rate) === 0);
-        if (noTax) {
-          setItems((prev) =>
-            prev.map((item) => ({ ...item, taxRate: Number(noTax.rate) })),
-          );
-        }
+        const defaultTaxRate = Number(s.taxRates.find((rate) => rate.isDefault)?.rate ?? 18);
+        setItems((prev) => prev.map((item) => ({ ...item, taxRate: defaultTaxRate })));
+        const defaultTax = s.taxRates.find((rate) => rate.isDefault) ?? s.taxRates.find((rate) => Number(rate.rate) === 18);
+        if (defaultTax) setSelectedTaxRateIds([defaultTax.id]);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -137,12 +144,30 @@ export default function NewInvoicePage() {
   }, [clients, clientSearch]);
 
   const selectedClient = clients.find((c) => c.id === clientId);
+  const nextInvoiceNumber = useMemo(() => {
+    const group = invoiceGroups.find((item) => item.id === invoiceGroupId);
+    if (!group) return "Generating from the default series...";
+    const idToken = "{{{id}}}";
+    const tokenPosition = group.template.indexOf(idToken);
+    const beforeNumber =
+      tokenPosition >= 0 ? group.template.slice(0, tokenPosition) : "";
+    const sequence = /0+$/.test(beforeNumber)
+      ? String(group.nextId)
+      : String(group.nextId).padStart(4, "0");
+
+    return group.template
+      .replace(/\{\{\{year\}\}\}/g, String(new Date().getFullYear()))
+      .replace(/\{\{\{id\}\}\}/g, sequence);
+  }, [invoiceGroupId, invoiceGroups]);
+  const invoiceTaxRate = taxRates
+    .filter((rate) => selectedTaxRateIds.includes(rate.id))
+    .reduce((sum, rate) => sum + Number(rate.rate), 0);
 
   const totals = useMemo(() => {
     const discount = toAmount(discountPercent);
     const lines = items.map((item) => {
       const subtotal = toAmount(item.quantity) * toAmount(item.unitPrice);
-      const tax = (subtotal * item.taxRate) / 100;
+      const tax = (subtotal * invoiceTaxRate) / 100;
       return { subtotal, tax, total: subtotal + tax };
     });
     const lineTotals = lines.map((line) => line.total);
@@ -160,7 +185,7 @@ export default function NewInvoicePage() {
       taxAmount,
       grandTotal,
     };
-  }, [items, discountPercent]);
+  }, [items, discountPercent, invoiceTaxRate]);
 
   function updateItem(index: number, patch: Partial<LineItem>) {
     setItems((prev) =>
@@ -199,7 +224,9 @@ export default function NewInvoicePage() {
         clientId,
         invoiceGroupId: invoiceGroupId || undefined,
         dueDate,
+        issueDate,
         discountPercent: toAmount(discountPercent),
+        taxLines: taxRates.filter((rate) => selectedTaxRateIds.includes(rate.id)).map((rate) => ({ name: rate.name, rate: Number(rate.rate) })),
         terms: opt(terms),
         deliveryNote: opt(deliveryNote),
         referenceNo: opt(referenceNo),
@@ -223,10 +250,11 @@ export default function NewInvoicePage() {
           unit: i.unit.trim() || "Nos",
           quantity: toAmount(i.quantity),
           unitPrice: toAmount(i.unitPrice),
-          taxRate: i.taxRate,
+          taxRate: invoiceTaxRate,
         })),
       });
-      router.push(`/invoices/${invoice.id}`);
+      void invoice;
+      router.push("/invoices");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create invoice");
       setSaving(false);
@@ -339,21 +367,13 @@ export default function NewInvoicePage() {
               Invoice Settings
             </h2>
             <div className="space-y-4">
-              <Field label="Number Series *">
-                <select
-                  required
-                  className={inputClass}
-                  value={invoiceGroupId}
-                  onChange={(e) => setInvoiceGroupId(e.target.value)}
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
+              <Field label="Invoice Number">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+                  {nextInvoiceNumber}
+                </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Determines the invoice number format.
+                  The next number from your default invoice series. It is
+                  assigned when you save the invoice.
                 </p>
               </Field>
               <Field label="Due Date *">
@@ -367,6 +387,10 @@ export default function NewInvoicePage() {
                 <p className="mt-1 text-xs text-slate-500">
                   Payment due by this date.
                 </p>
+              </Field>
+              <Field label="Invoice Date *">
+                <input type="date" required className={inputClass} value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+                <p className="mt-1 text-xs text-slate-500">Defaults to today; you can change it before saving.</p>
               </Field>
             </div>
           </Card>
@@ -389,9 +413,7 @@ export default function NewInvoicePage() {
                     unit: "Nos",
                     quantity: "1",
                     unitPrice: "",
-                    taxRate: Number(
-                      taxRates.find((t) => Number(t.rate) === 0)?.rate ?? 0,
-                    ),
+                      taxRate: Number(taxRates.find((rate) => rate.isDefault)?.rate ?? 18),
                   },
                 ])
               }
@@ -401,13 +423,30 @@ export default function NewInvoicePage() {
             </PrimaryButton>
           </div>
 
+          <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="mb-2 text-sm font-medium text-slate-700">Invoice Tax Rates</p>
+            <div className="flex flex-wrap gap-3">
+              {taxRates.map((rate) => (
+                <label key={rate.id} className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={selectedTaxRateIds.includes(rate.id)}
+                    onChange={() => setSelectedTaxRateIds((current) => current.includes(rate.id) ? current.filter((id) => id !== rate.id) : [...current, rate.id])}
+                  />
+                  {rate.name} ({Number(rate.rate)}%)
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Selected taxes apply to the entire invoice. Combined rate: {invoiceTaxRate}%.</p>
+          </div>
+
           <div className="space-y-4">
             {items.map((item, index) => (
               <div
                 key={index}
                 className="rounded-xl border border-slate-200 bg-slate-50/60 p-4"
               >
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_5.5rem_7rem_9rem_8.5rem]">
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_5.5rem_7rem_auto]">
                   <div className="relative min-w-0 space-y-2">
                     <label className="text-xs font-medium text-slate-500">
                       Item Name <span className="text-rose-500">*</span>
@@ -510,26 +549,6 @@ export default function NewInvoicePage() {
                       }
                     />
                   </div>
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-slate-500">
-                      Tax Rate
-                    </label>
-                    <select
-                      className={`${inputClass} mt-2`}
-                      value={item.taxRate}
-                      onChange={(e) =>
-                        updateItem(index, {
-                          taxRate: Number(e.target.value),
-                        })
-                      }
-                    >
-                      {taxRates.map((t) => (
-                        <option key={t.id} value={Number(t.rate)}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
                   <div className="flex min-w-0 items-start justify-end gap-2 pt-6">
                     <span
                       className="min-w-0 truncate text-right text-sm font-semibold tabular-nums text-blue-600"
@@ -574,6 +593,14 @@ export default function NewInvoicePage() {
                 }
               />
             </div>
+            {taxRates
+              .filter((rate) => selectedTaxRateIds.includes(rate.id))
+              .map((rate) => (
+                <div key={rate.id} className="flex items-center justify-between gap-4 text-slate-600">
+                  <span className="shrink-0">{rate.name} ({Number(rate.rate)}%)</span>
+                  <span>{formatMoney(invoiceTaxRate ? (totals.taxAmount * Number(rate.rate)) / invoiceTaxRate : 0)}</span>
+                </div>
+              ))}
             <div className="flex items-center justify-between gap-4 text-base font-semibold text-blue-600">
               <span className="shrink-0">Grand Total</span>
               <span className="min-w-0 truncate text-right tabular-nums">

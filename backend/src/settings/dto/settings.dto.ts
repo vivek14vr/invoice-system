@@ -55,7 +55,32 @@ export class CreateInvoiceGroupDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(1)
+  @Min(0)
+  nextId?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+}
+
+export class UpdateInvoiceGroupDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @Matches(/\{\{\{id\}\}\}/, {
+    message: 'template must contain {{{id}}}',
+  })
+  template?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   nextId?: number;
 
   @IsOptional()

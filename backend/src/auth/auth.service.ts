@@ -14,7 +14,13 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SESSION_DURATION_MS } from './auth.constants';
 
-type SafeUser = { id: string; email: string; name: string };
+type SafeUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'READ_ONLY';
+  companyId?: string | null;
+};
 type FailedLogin = { count: number; resetAt: number };
 
 const failedLogins = new Map<string, FailedLogin>();
@@ -54,21 +60,39 @@ export class AuthService implements OnModuleInit {
 
   async onModuleInit() {
     const userCount = await this.prisma.user.count();
-    if (userCount > 0) return;
+    if (userCount > 0) {
+      let company = await this.prisma.company.findFirst({
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!company)
+        company = await this.prisma.company.create({
+          data: { name: 'Default Company' },
+        });
+      await this.prisma.user.updateMany({
+        where: { companyId: null },
+        data: { companyId: company.id },
+      });
+      return;
+    }
 
     const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
     const password = process.env.ADMIN_PASSWORD;
-    if (!email || !password || password.length < 12) {
+    if (!email || !password || password.length < 8) {
       throw new Error(
-        'ADMIN_EMAIL and ADMIN_PASSWORD (at least 12 characters) are required to create the first administrator',
+        'ADMIN_EMAIL and ADMIN_PASSWORD (at least 8 characters) are required to create the first administrator',
       );
     }
 
+    const company = await this.prisma.company.create({
+      data: { name: 'Default Company' },
+    });
     await this.prisma.user.create({
       data: {
         email,
         name: 'Admin User',
         passwordHash: await hashPassword(password),
+        role: 'ADMIN',
+        companyId: company.id,
       },
     });
   }
@@ -121,8 +145,55 @@ export class AuthService implements OnModuleInit {
     });
   }
 
+  async createUser(dto: {
+    email: string;
+    name: string;
+    password: string;
+    role?: 'ADMIN' | 'READ_ONLY';
+    companyId?: string;
+  }) {
+    const company = dto.companyId
+      ? await this.prisma.company.findUnique({ where: { id: dto.companyId } })
+      : await this.prisma.company.findFirst({ orderBy: { createdAt: 'asc' } });
+    if (!company) throw new Error('Company not found');
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        name: dto.name.trim(),
+        passwordHash: await hashPassword(dto.password),
+        role: dto.role ?? 'READ_ONLY',
+        companyId: company.id,
+      },
+    });
+    return this.safeUser(user);
+  }
+
+  async listUsers() {
+    return (
+      await this.prisma.user.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { company: true },
+      })
+    ).map((user) => ({ ...this.safeUser(user), company: user.company }));
+  }
+
+  async listCompanies() {
+    return this.prisma.company.findMany({ orderBy: { createdAt: 'asc' } });
+  }
+
+  async createCompany(name: string) {
+    return this.prisma.company.create({ data: { name: name.trim() } });
+  }
+
   private safeUser(user: SafeUser): SafeUser {
-    return { id: user.id, email: user.email, name: user.name };
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      companyId: user.companyId,
+    };
   }
 
   private assertWithinRateLimit(key: string) {

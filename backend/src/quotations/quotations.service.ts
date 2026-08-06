@@ -79,14 +79,15 @@ export class QuotationsService {
     if (!client) throw new NotFoundException('Client not found');
 
     const lineItems = dto.items.map((item) => {
+      const taxRate = item.taxRate;
       const lineSubtotal = money(item.quantity * item.unitPrice);
-      const lineTax = money((lineSubtotal * item.taxRate) / 100);
+      const lineTax = money((lineSubtotal * taxRate) / 100);
       return {
         name: item.name,
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
-        taxRate: item.taxRate,
+        taxRate,
         amount: money(lineSubtotal + lineTax),
         lineSubtotal,
         lineTax,
