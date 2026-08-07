@@ -72,6 +72,17 @@ export class AuthService implements OnModuleInit {
         where: { companyId: null },
         data: { companyId: company.id },
       });
+
+      // ADMIN_EMAIL is the configured owner account. Reconcile its role on
+      // startup as well as during first-run creation so an existing account
+      // cannot remain read-only after an upgrade or database restore.
+      const configuredAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+      if (configuredAdminEmail) {
+        await this.prisma.user.updateMany({
+          where: { email: configuredAdminEmail },
+          data: { role: 'ADMIN', companyId: company.id },
+        });
+      }
       return;
     }
 
