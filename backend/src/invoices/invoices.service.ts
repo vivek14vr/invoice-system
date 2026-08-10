@@ -275,7 +275,25 @@ export class InvoicesService {
     const data: Record<string, unknown> = {};
     if (dto.clientId) data.clientId = dto.clientId;
     if (dto.taxLines !== undefined) data.taxLines = dto.taxLines;
-    if (
+    if (dto.invoiceNumber !== undefined) {
+      const invoiceNumber = dto.invoiceNumber.trim();
+      if (!invoiceNumber) {
+        throw new BadRequestException('Invoice number is required');
+      }
+      const duplicate = await this.prisma.invoice.findUnique({
+        where: { invoiceNumber },
+        select: { id: true },
+      });
+      if (duplicate && duplicate.id !== id) {
+        throw new BadRequestException('Invoice number already exists');
+      }
+      data.invoiceNumber = invoiceNumber;
+      data.invoiceNumberPrefix = null;
+      data.invoiceNumberSuffix = null;
+      if ((dto.status ?? existing.status) === InvoiceStatus.CREDIT_NOTE) {
+        data.creditNoteNumber = invoiceNumber;
+      }
+    } else if (
       dto.invoiceNumberPrefix !== undefined ||
       dto.invoiceNumberSuffix !== undefined
     ) {

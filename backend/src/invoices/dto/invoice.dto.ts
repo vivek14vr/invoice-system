@@ -177,6 +177,11 @@ export class UpdateInvoiceDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
+  invoiceNumber?: string;
+
+  @IsOptional()
+  @IsString()
   invoiceNumberPrefix?: string;
 
   @IsOptional()

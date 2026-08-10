@@ -40,6 +40,8 @@ export default function InvoiceDetailPage() {
   const [creatingCreditNote, setCreatingCreditNote] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [issueDate, setIssueDate] = useState("");
   const [items, setItems] = useState<EditableItem[]>([]);
   const [meta, setMeta] = useState({
     terms: "",
@@ -69,6 +71,8 @@ export default function InvoiceDetailPage() {
         setInvoice(inv);
         setClients(allClients);
         setClientId(inv.clientId);
+        setInvoiceNumber(inv.invoiceNumber);
+        setIssueDate(toDateInput(inv.issueDate));
         setItems((inv.items ?? []).map((item) => ({
           name: item.name ?? "",
           description: item.description ?? "",
@@ -144,6 +148,8 @@ export default function InvoiceDetailPage() {
       const opt = (v: string) => (v.trim() ? v.trim() : "");
       const updated = await api.patch<Invoice>(`/invoices/${invoice.id}`, {
         clientId,
+        invoiceNumber: invoiceNumber.trim(),
+        issueDate,
         items: items
           .filter((item) => item.name.trim())
           .map((item) => ({
@@ -183,7 +189,9 @@ export default function InvoiceDetailPage() {
         unitPrice: String(item.unitPrice),
       })));
       setClientId(updated.clientId);
-      setMessage("PDF details saved successfully.");
+      setInvoiceNumber(updated.invoiceNumber);
+      setIssueDate(toDateInput(updated.issueDate));
+      setMessage("Invoice changes saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -301,11 +309,28 @@ export default function InvoiceDetailPage() {
                 Edit Invoice
               </h2>
               <p className="text-xs text-slate-500">
-                Update the client and goods after generation. Invoice numbering is managed in Settings.
+                Update the invoice number, date, client, and goods after generation.
               </p>
             </div>
           </div>
-          <div className="grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Invoice Number *">
+              <input
+                className={inputClass}
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Invoice Date *">
+              <input
+                type="date"
+                className={inputClass}
+                value={issueDate}
+                onChange={(e) => setIssueDate(e.target.value)}
+                required
+              />
+            </Field>
             <Field label="Client">
               <select
                 className={inputClass}
@@ -462,7 +487,7 @@ export default function InvoiceDetailPage() {
         </div>
 
         <div className="flex items-center justify-end gap-3">
-          {message === "PDF details saved successfully." ? (
+          {message === "Invoice changes saved successfully." ? (
             <span className="text-sm text-emerald-600">Saved successfully.</span>
           ) : null}
           <PrimaryButton type="submit" disabled={saving}>
