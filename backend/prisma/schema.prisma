@@ -55,6 +55,7 @@ model Company {
   updatedAt DateTime        @updatedAt
   users     User[]
   invoices  Invoice[]
+  expenses  Expense[]
 }
 
 model Session {
@@ -220,6 +221,27 @@ model Payment {
 
   @@index([invoiceId])
   @@index([clientId])
+}
+
+model Expense {
+  id            String    @id @default(cuid()) @map("_id")
+  invoiceNumber String
+  category      String
+  paymentMode   String
+  expenseDate   DateTime  @default(now())
+  itemDetails   String
+  amount        Float
+  gstRate       Float     @default(0)
+  gstAmount     Float     @default(0)
+  total         Float
+  notes         String?
+  companyId     String?
+  company       Company?  @relation(fields: [companyId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([expenseDate])
 }
 
 model TaxRate {

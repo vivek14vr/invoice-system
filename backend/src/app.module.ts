@@ -9,6 +9,7 @@ import { ProductsModule } from './products/products.module';
 import { QuotationsModule } from './quotations/quotations.module';
 import { SettingsModule } from './settings/settings.module';
 import { AuthModule } from './auth/auth.module';
+import { ExpensesModule } from './expenses/expenses.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { AuthModule } from './auth/auth.module';
     QuotationsModule,
     ProductsModule,
     PaymentsModule,
+    ExpensesModule,
     SettingsModule,
   ],
 })

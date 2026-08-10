@@ -11,6 +11,7 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  ReceiptIndianRupee,
   Settings,
   Users,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const nav = [
   { href: "/quotations", label: "Quotations", icon: FilePlus2 },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/payments", label: "Payments", icon: CreditCard },
+  { href: "/expenses", label: "Expenses", icon: ReceiptIndianRupee },
   { href: "/products", label: "Products", icon: Box },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/users", label: "Users & Companies", icon: Users },

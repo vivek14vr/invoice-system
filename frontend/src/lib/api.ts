@@ -172,6 +172,20 @@ export type Payment = {
   client?: Client;
 };
 
+export type Expense = {
+  id: string;
+  invoiceNumber: string;
+  category: string;
+  paymentMode: string;
+  expenseDate: string;
+  itemDetails: string;
+  amount: number | string;
+  gstRate: number | string;
+  gstAmount: number | string;
+  total: number | string;
+  notes?: string | null;
+};
+
 export type DashboardData = {
   totals: {
     clients: number;
