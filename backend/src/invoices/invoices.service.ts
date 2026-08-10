@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InvoiceStatus } from '../generated/prisma/enums';
-import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateInvoiceDto,
@@ -86,6 +85,16 @@ function computeTotals(items: InvoiceItemDto[], discountPercent = 0) {
 @Injectable()
 export class InvoicesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private gstTaxLines(client: { vatGstNumber?: string | null }) {
+    const gstStateCode = client.vatGstNumber?.trim().slice(0, 2);
+    return gstStateCode === '09'
+      ? [
+          { name: 'CGST', rate: 9 },
+          { name: 'SGST', rate: 9 },
+        ]
+      : [{ name: 'IGST', rate: 18 }];
+  }
 
   private validateLineItemAmounts(
     items: InvoiceItemDto[],
@@ -201,9 +210,12 @@ export class InvoicesService {
 
     const status = dto.status ?? InvoiceStatus.DRAFT;
     this.validateLineItemAmounts(dto.items, status);
+    const taxLines = this.gstTaxLines(client);
+    const taxRate = taxLines.reduce((sum, tax) => sum + tax.rate, 0);
+    const items = dto.items.map((item) => ({ ...item, taxRate }));
     const discountPercent = dto.discountPercent ?? 0;
     const { lineItems, subtotal, discountAmount, taxAmount, total, avgTax } =
-      computeTotals(dto.items, discountPercent);
+      computeTotals(items, discountPercent);
     const { invoiceNumber, invoiceGroupId } = await this.nextInvoiceNumber(
       dto.invoiceGroupId,
     );
@@ -225,7 +237,7 @@ export class InvoicesService {
         discountAmount,
         subtotal,
         taxAmount,
-        taxLines: dto.taxLines as unknown as Prisma.InputJsonValue,
+        taxLines: taxLines,
         total,
         notes: dto.notes,
         terms: dto.terms,
@@ -274,7 +286,6 @@ export class InvoicesService {
     if (!client) throw new NotFoundException('Client not found');
     const data: Record<string, unknown> = {};
     if (dto.clientId) data.clientId = dto.clientId;
-    if (dto.taxLines !== undefined) data.taxLines = dto.taxLines;
     if (dto.invoiceNumber !== undefined) {
       const invoiceNumber = dto.invoiceNumber.trim();
       if (!invoiceNumber) {
@@ -368,17 +379,21 @@ export class InvoicesService {
           unitPrice: Number(item.unitPrice),
           taxRate: Number(item.taxRate),
         }));
+      const taxLines = this.gstTaxLines(client);
+      const taxRate = taxLines.reduce((sum, tax) => sum + tax.rate, 0);
+      const normalizedItems = items.map((item) => ({ ...item, taxRate }));
       const discountPercent =
         dto.discountPercent ?? Number(existing.discountPercent);
       this.validateLineItemAmounts(items, dto.status ?? existing.status);
       const { lineItems, subtotal, discountAmount, taxAmount, total, avgTax } =
-        computeTotals(items, discountPercent);
+        computeTotals(normalizedItems, discountPercent);
       data.discountPercent = discountPercent;
       data.discountAmount = discountAmount;
       data.taxRate = avgTax;
       data.subtotal = subtotal;
       data.taxAmount = taxAmount;
       data.total = total;
+      data.taxLines = taxLines;
       if (dto.items) {
         await this.prisma.invoiceItem.deleteMany({ where: { invoiceId: id } });
         data.items = {

@@ -53,11 +53,9 @@ export default function NewInvoicePage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [taxRates, setTaxRates] = useState<SettingsPayload["taxRates"]>([]);
   const [invoiceGroups, setInvoiceGroups] = useState<
     SettingsPayload["invoiceGroups"]
   >([]);
-  const [selectedTaxRateIds, setSelectedTaxRateIds] = useState<string[]>([]);
   const [clientSearch, setClientSearch] = useState("");
   const [clientId, setClientId] = useState("");
   const [showClientList, setShowClientList] = useState(false);
@@ -107,7 +105,6 @@ export default function NewInvoicePage() {
       .then(([c, p, s]) => {
         setClients(c);
         setProducts(p);
-        setTaxRates(s.taxRates);
         setInvoiceGroups(s.invoiceGroups);
         const invGroups = s.invoiceGroups.filter((g) =>
           g.name.toLowerCase().includes("invoice"),
@@ -124,10 +121,6 @@ export default function NewInvoicePage() {
           d.setDate(d.getDate() + dueAfter);
           setDueDate(d.toISOString().slice(0, 10));
         }
-        const defaultTaxRate = Number(s.taxRates.find((rate) => rate.isDefault)?.rate ?? 18);
-        setItems((prev) => prev.map((item) => ({ ...item, taxRate: defaultTaxRate })));
-        const defaultTax = s.taxRates.find((rate) => rate.isDefault) ?? s.taxRates.find((rate) => Number(rate.rate) === 18);
-        if (defaultTax) setSelectedTaxRateIds([defaultTax.id]);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -159,9 +152,13 @@ export default function NewInvoicePage() {
       .replace(/\{\{\{year\}\}\}/g, String(new Date().getFullYear()))
       .replace(/\{\{\{id\}\}\}/g, sequence);
   }, [invoiceGroupId, invoiceGroups]);
-  const invoiceTaxRate = taxRates
-    .filter((rate) => selectedTaxRateIds.includes(rate.id))
-    .reduce((sum, rate) => sum + Number(rate.rate), 0);
+  const invoiceTaxLines = useMemo(() => {
+    if (!selectedClient) return [];
+    return selectedClient.vatGstNumber?.trim().startsWith("09")
+      ? [{ name: "CGST", rate: 9 }, { name: "SGST", rate: 9 }]
+      : [{ name: "IGST", rate: 18 }];
+  }, [selectedClient]);
+  const invoiceTaxRate = invoiceTaxLines.reduce((sum, tax) => sum + tax.rate, 0);
 
   const totals = useMemo(() => {
     const discount = toAmount(discountPercent);
@@ -226,7 +223,7 @@ export default function NewInvoicePage() {
         dueDate,
         issueDate,
         discountPercent: toAmount(discountPercent),
-        taxLines: taxRates.filter((rate) => selectedTaxRateIds.includes(rate.id)).map((rate) => ({ name: rate.name, rate: Number(rate.rate) })),
+        taxLines: invoiceTaxLines,
         terms: opt(terms),
         deliveryNote: opt(deliveryNote),
         referenceNo: opt(referenceNo),
@@ -413,7 +410,7 @@ export default function NewInvoicePage() {
                     unit: "Nos",
                     quantity: "1",
                     unitPrice: "",
-                      taxRate: Number(taxRates.find((rate) => rate.isDefault)?.rate ?? 18),
+                    taxRate: invoiceTaxRate,
                   },
                 ])
               }
@@ -424,20 +421,9 @@ export default function NewInvoicePage() {
           </div>
 
           <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-2 text-sm font-medium text-slate-700">Invoice Tax Rates</p>
-            <div className="flex flex-wrap gap-3">
-              {taxRates.map((rate) => (
-                <label key={rate.id} className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={selectedTaxRateIds.includes(rate.id)}
-                    onChange={() => setSelectedTaxRateIds((current) => current.includes(rate.id) ? current.filter((id) => id !== rate.id) : [...current, rate.id])}
-                  />
-                  {rate.name} ({Number(rate.rate)}%)
-                </label>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-slate-500">Selected taxes apply to the entire invoice. Combined rate: {invoiceTaxRate}%.</p>
+            <p className="mb-2 text-sm font-medium text-slate-700">Invoice GST</p>
+            {selectedClient ? <p className="text-sm text-slate-700">Client GSTIN: <strong>{selectedClient.vatGstNumber || "Not provided"}</strong> · {invoiceTaxLines.map((tax) => `${tax.name} ${tax.rate}%`).join(" + ")}</p> : <p className="text-sm text-slate-500">Select a client to apply GST automatically.</p>}
+            <p className="mt-2 text-xs text-slate-500">GSTIN beginning with 09 applies CGST 9% + SGST 9%. All other GSTINs apply IGST 18%.</p>
           </div>
 
           <div className="space-y-4">
@@ -593,12 +579,11 @@ export default function NewInvoicePage() {
                 }
               />
             </div>
-            {taxRates
-              .filter((rate) => selectedTaxRateIds.includes(rate.id))
-              .map((rate) => (
-                <div key={rate.id} className="flex items-center justify-between gap-4 text-slate-600">
-                  <span className="shrink-0">{rate.name} ({Number(rate.rate)}%)</span>
-                  <span>{formatMoney(invoiceTaxRate ? (totals.taxAmount * Number(rate.rate)) / invoiceTaxRate : 0)}</span>
+            {invoiceTaxLines
+              .map((tax) => (
+                <div key={tax.name} className="flex items-center justify-between gap-4 text-slate-600">
+                  <span className="shrink-0">{tax.name} ({tax.rate}%)</span>
+                  <span>{formatMoney(invoiceTaxRate ? (totals.taxAmount * tax.rate) / invoiceTaxRate : 0)}</span>
                 </div>
               ))}
             <div className="flex items-center justify-between gap-4 text-base font-semibold text-blue-600">
