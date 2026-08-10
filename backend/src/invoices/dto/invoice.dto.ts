@@ -37,7 +37,6 @@ export class InvoiceItemDto {
 
   @Type(() => Number)
   @IsNumber()
-  @Min(0)
   unitPrice!: number;
 
   @Type(() => Number)

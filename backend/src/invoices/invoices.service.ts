@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InvoiceStatus } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -82,6 +86,18 @@ function computeTotals(items: InvoiceItemDto[], discountPercent = 0) {
 @Injectable()
 export class InvoicesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private validateLineItemAmounts(
+    items: InvoiceItemDto[],
+    status: InvoiceStatus,
+  ) {
+    const hasNegativePrice = items.some((item) => item.unitPrice < 0);
+    if (hasNegativePrice && status !== InvoiceStatus.CREDIT_NOTE) {
+      throw new BadRequestException(
+        'Negative line prices are allowed only for credit notes',
+      );
+    }
+  }
 
   private async nextInvoiceNumber(invoiceGroupId?: string) {
     const year = new Date().getFullYear();
@@ -183,6 +199,8 @@ export class InvoicesService {
     });
     if (!client) throw new NotFoundException('Client not found');
 
+    const status = dto.status ?? InvoiceStatus.DRAFT;
+    this.validateLineItemAmounts(dto.items, status);
     const discountPercent = dto.discountPercent ?? 0;
     const { lineItems, subtotal, discountAmount, taxAmount, total, avgTax } =
       computeTotals(dto.items, discountPercent);
@@ -201,7 +219,7 @@ export class InvoicesService {
         invoiceGroupId,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
         dueDate: new Date(dto.dueDate),
-        status: dto.status ?? InvoiceStatus.DRAFT,
+        status,
         taxRate: avgTax,
         discountPercent,
         discountAmount,
@@ -334,6 +352,7 @@ export class InvoicesService {
         }));
       const discountPercent =
         dto.discountPercent ?? Number(existing.discountPercent);
+      this.validateLineItemAmounts(items, dto.status ?? existing.status);
       const { lineItems, subtotal, discountAmount, taxAmount, total, avgTax } =
         computeTotals(items, discountPercent);
       data.discountPercent = discountPercent;
