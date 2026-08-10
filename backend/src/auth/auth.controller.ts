@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Post,
+  Param,
   Req,
   Res,
 } from '@nestjs/common';
@@ -69,6 +71,12 @@ export class AuthController {
     },
   ) {
     return this.authService.createUser(dto);
+  }
+
+  @Delete('users/:id')
+  @AdminOnly()
+  removeUser(@Param('id') id: string) {
+    return this.authService.removeUser(id);
   }
 
   @Get('companies')

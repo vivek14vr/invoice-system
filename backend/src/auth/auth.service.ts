@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   OnModuleInit,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -188,6 +189,13 @@ export class AuthService implements OnModuleInit {
         include: { company: true },
       })
     ).map((user) => ({ ...this.safeUser(user), company: user.company }));
+  }
+
+  async removeUser(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+    await this.prisma.user.delete({ where: { id } });
+    return { ok: true };
   }
 
   async listCompanies() {

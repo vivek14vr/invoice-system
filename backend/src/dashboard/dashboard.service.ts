@@ -29,7 +29,7 @@ export class DashboardService {
       this.prisma.invoice.findMany({
         take: 5,
         orderBy: { createdAt: 'desc' },
-        include: { client: true },
+        include: { client: true, payments: { select: { amount: true } } },
       }),
       this.prisma.quotation.findMany({
         take: 5,
@@ -89,7 +89,17 @@ export class DashboardService {
         QuoteStatus.APPROVED,
         QuoteStatus.REJECTED,
       ]),
-      recentInvoices,
+      recentInvoices: recentInvoices.map((invoice) => ({
+        ...invoice,
+        balanceDue: Math.max(
+          0,
+          Number(invoice.total) -
+            invoice.payments.reduce(
+              (sum, payment) => sum + Number(payment.amount),
+              0,
+            ),
+        ),
+      })),
       recentQuotes,
     };
   }

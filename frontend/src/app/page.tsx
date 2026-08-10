@@ -12,7 +12,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import { api, DashboardData } from "@/lib/api";
-import { formatMoney, statusLabel } from "@/lib/format";
+import { formatDate, formatMoney, statusLabel } from "@/lib/format";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
 
 export default function DashboardPage() {
@@ -146,6 +146,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        <RecentInvoiceTable invoices={data?.recentInvoices ?? []} />
         <RecentList
           title="Recent Invoices"
           empty="No invoices yet"
@@ -173,6 +174,10 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function RecentInvoiceTable({ invoices }: { invoices: DashboardData["recentInvoices"] }) {
+  return <Card className="overflow-hidden"><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-900">Recent Invoices</h2><Link href="/invoices" className="text-sm text-blue-600">View All</Link></div><div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Status</th><th className="px-4 py-3">Due Date</th><th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Client</th><th className="px-4 py-3 text-right">Balance</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(inv=><tr key={inv.id}><td className="px-4 py-3"><StatusBadge status={inv.status}/></td><td className="px-4 py-3 text-slate-600">{formatDate(inv.dueDate)}</td><td className="px-4 py-3"><Link className="text-blue-600" href={`/invoices/${inv.id}`}>{inv.invoiceNumber}</Link></td><td className="px-4 py-3 text-slate-600">{inv.client?.name ?? "—"}</td><td className="px-4 py-3 text-right font-semibold">{formatMoney(inv.balanceDue ?? inv.total)}</td></tr>)}</tbody></table></div></Card>;
 }
 
 function OverviewCard({
