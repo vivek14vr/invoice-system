@@ -17,14 +17,20 @@ function renderNumber(template: string, year: number, id: number) {
 export class QuotationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async nextQuoteNumber(invoiceGroupId?: string) {
+  private async nextQuoteNumber(
+    invoiceGroupId?: string,
+    companyId?: string | null,
+  ) {
     const year = new Date().getFullYear();
     const group = invoiceGroupId
-      ? await this.prisma.invoiceGroup.findUnique({
-          where: { id: invoiceGroupId },
+      ? await this.prisma.invoiceGroup.findFirst({
+          where: { id: invoiceGroupId, companyId: companyId ?? undefined },
         })
       : await this.prisma.invoiceGroup.findFirst({
-          where: { name: 'Quotation Series' },
+          where: {
+            name: 'Quotation Series',
+            companyId: companyId ?? undefined,
+          },
         });
 
     let next = 1;
@@ -43,10 +49,11 @@ export class QuotationsService {
     return { quoteNumber, invoiceGroupId: group?.id ?? null };
   }
 
-  findAll(search?: string, status?: QuoteStatus) {
+  findAll(search?: string, status?: QuoteStatus, companyId?: string | null) {
     return this.prisma.quotation.findMany({
       where: {
         AND: [
+          companyId ? { companyId } : {},
           status ? { status } : {},
           search
             ? {
@@ -63,18 +70,19 @@ export class QuotationsService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, companyId?: string | null) {
     const quote = await this.prisma.quotation.findUnique({
       where: { id },
       include: { client: true, items: true },
     });
-    if (!quote) throw new NotFoundException('Quotation not found');
+    if (!quote || (companyId && quote.companyId !== companyId))
+      throw new NotFoundException('Quotation not found');
     return quote;
   }
 
-  async create(dto: CreateQuotationDto) {
-    const client = await this.prisma.client.findUnique({
-      where: { id: dto.clientId },
+  async create(dto: CreateQuotationDto, companyId?: string | null) {
+    const client = await this.prisma.client.findFirst({
+      where: { id: dto.clientId, companyId: companyId ?? undefined },
     });
     if (!client) throw new NotFoundException('Client not found');
 
@@ -101,6 +109,7 @@ export class QuotationsService {
 
     const { quoteNumber, invoiceGroupId } = await this.nextQuoteNumber(
       dto.invoiceGroupId,
+      companyId,
     );
 
     return this.prisma.quotation.create({
@@ -108,6 +117,7 @@ export class QuotationsService {
         quoteNumber,
         clientId: dto.clientId,
         invoiceGroupId,
+        companyId: companyId ?? undefined,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
         validUntil: new Date(dto.validUntil),
         status: dto.status ?? QuoteStatus.DRAFT,
@@ -131,8 +141,8 @@ export class QuotationsService {
     });
   }
 
-  async update(id: string, dto: UpdateQuotationDto) {
-    await this.findOne(id);
+  async update(id: string, dto: UpdateQuotationDto, companyId?: string | null) {
+    await this.findOne(id, companyId);
     return this.prisma.quotation.update({
       where: { id },
       data: {
@@ -144,8 +154,8 @@ export class QuotationsService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, companyId?: string | null) {
+    await this.findOne(id, companyId);
     await this.prisma.quotation.delete({ where: { id } });
     return { ok: true };
   }

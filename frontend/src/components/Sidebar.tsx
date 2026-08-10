@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
-import type { AuthUser } from "@/lib/api";
+import type { AuthUser, Workspace } from "@/lib/api";
 import {
   Box,
   CreditCard,
@@ -14,6 +15,8 @@ import {
   ReceiptIndianRupee,
   Settings,
   Users,
+  ChevronDown,
+  Plus,
 } from "lucide-react";
 
 const nav = [
@@ -30,12 +33,26 @@ const nav = [
 
 export function Sidebar({
   user,
+  workspaces,
   onLogout,
+  onSwitchWorkspace,
+  onCreateWorkspace,
 }: {
   user: AuthUser;
+  workspaces: Workspace[];
   onLogout: () => void;
+  onSwitchWorkspace: (companyId: string) => Promise<void>;
+  onCreateWorkspace: (name: string) => Promise<void>;
 }) {
   const pathname = usePathname();
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+
+  async function createWorkspace() {
+    const name = window.prompt("New workspace name");
+    if (!name?.trim()) return;
+    await onCreateWorkspace(name.trim());
+    setWorkspaceOpen(false);
+  }
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -57,6 +74,42 @@ export function Sidebar({
           />
           <p className="text-xs text-slate-500">Invoice System</p>
         </div>
+      </div>
+
+      <div className="relative px-3 pb-3">
+        <button
+          type="button"
+          onClick={() => setWorkspaceOpen((open) => !open)}
+          className="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Workspace</p>
+            <p className="truncate font-medium text-slate-700">{user.workspace?.name ?? "Default workspace"}</p>
+          </div>
+          <ChevronDown className="h-4 w-4 text-slate-500" />
+        </button>
+        {workspaceOpen && (
+          <div className="absolute left-3 right-3 z-20 mt-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+            {workspaces.map((workspace) => (
+              <button
+                key={workspace.id}
+                type="button"
+                onClick={async () => {
+                  await onSwitchWorkspace(workspace.id);
+                  setWorkspaceOpen(false);
+                }}
+                className={`block w-full rounded-md px-3 py-2 text-left text-sm ${workspace.id === user.companyId ? "bg-blue-50 font-medium text-blue-700" : "hover:bg-slate-50"}`}
+              >
+                {workspace.name}
+              </button>
+            ))}
+            {user.role === "ADMIN" ? (
+              <button type="button" onClick={createWorkspace} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50">
+                <Plus className="h-4 w-4" /> Create workspace
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">

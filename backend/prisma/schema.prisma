@@ -41,6 +41,7 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
+  workspaceMemberships WorkspaceMembership[]
 }
 
 model Company {
@@ -54,6 +55,16 @@ model Company {
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
   users     User[]
+  memberships WorkspaceMembership[]
+  activeSessions Session[] @relation("ActiveWorkspace")
+  clients   Client[]
+  products  Product[]
+  quotations Quotation[]
+  payments  Payment[]
+  taxRates TaxRate[]
+  paymentMethods PaymentMethod[]
+  invoiceGroups InvoiceGroup[]
+  settings Setting[]
   invoices  Invoice[]
   expenses  Expense[]
 }
@@ -63,11 +74,27 @@ model Session {
   tokenHash String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeCompanyId String?
+  activeCompany Company? @relation("ActiveWorkspace", fields: [activeCompanyId], references: [id])
   expiresAt DateTime
   createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([activeCompanyId])
+}
+
+model WorkspaceMembership {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  companyId String
+  role      UserRole @default(READ_ONLY)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, companyId])
+  @@index([companyId])
 }
 
 model Client {
@@ -89,11 +116,15 @@ model Client {
   vatGstNumber String?
   taxCodePan   String?
   stateCode    String?
+  companyId    String?
+  workspace    Company? @relation(fields: [companyId], references: [id])
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   invoices     Invoice[]
   quotes       Quotation[]
   payments     Payment[]
+
+  @@index([companyId])
 }
 
 model Product {
@@ -103,13 +134,17 @@ model Product {
   price         Float    @default(0)
   purchasePrice Float    @default(0)
   description   String?
+  companyId     String?
+  workspace     Company? @relation(fields: [companyId], references: [id])
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([companyId])
 }
 
 model Invoice {
   id                 String        @id @default(cuid()) @map("_id")
-  invoiceNumber      String        @unique
+  invoiceNumber      String
   invoiceNumberPrefix String?
   invoiceNumberSuffix String?
   clientId           String
@@ -154,6 +189,7 @@ model Invoice {
 
   @@index([clientId])
   @@index([companyId])
+  @@unique([companyId, invoiceNumber])
 }
 
 model InvoiceItem {
@@ -174,10 +210,12 @@ model InvoiceItem {
 
 model Quotation {
   id             String      @id @default(cuid()) @map("_id")
-  quoteNumber    String      @unique
+  quoteNumber    String
   clientId       String
   client         Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   invoiceGroupId String?
+  companyId      String?
+  workspace      Company?    @relation(fields: [companyId], references: [id])
   issueDate      DateTime    @default(now())
   validUntil     DateTime?
   status         QuoteStatus @default(DRAFT)
@@ -191,6 +229,8 @@ model Quotation {
   items          QuoteItem[]
 
   @@index([clientId])
+  @@index([companyId])
+  @@unique([companyId, quoteNumber])
 }
 
 model QuoteItem {
@@ -217,10 +257,13 @@ model Payment {
   amount    Float
   paidAt    DateTime @default(now())
   notes     String?
+  companyId String?
+  workspace Company? @relation(fields: [companyId], references: [id])
   createdAt DateTime @default(now())
 
   @@index([invoiceId])
   @@index([clientId])
+  @@index([companyId])
 }
 
 model Expense {
@@ -249,14 +292,23 @@ model TaxRate {
   name      String
   rate      Float
   isDefault Boolean  @default(false)
+  companyId String?
+  workspace Company? @relation(fields: [companyId], references: [id])
   createdAt DateTime @default(now())
+
+  @@index([companyId])
 }
 
 model PaymentMethod {
   id        String   @id @default(cuid()) @map("_id")
-  name      String   @unique
+  name      String
   isDefault Boolean  @default(false)
+  companyId String?
+  workspace Company? @relation(fields: [companyId], references: [id])
   createdAt DateTime @default(now())
+
+  @@unique([companyId, name])
+  @@index([companyId])
 }
 
 model InvoiceGroup {
@@ -265,11 +317,20 @@ model InvoiceGroup {
   template  String
   nextId    Int      @default(1)
   isDefault Boolean  @default(false)
+  companyId String?
+  workspace Company? @relation(fields: [companyId], references: [id])
   createdAt DateTime @default(now())
+
+  @@index([companyId])
 }
 
 model Setting {
   id    String @id @default(cuid()) @map("_id")
-  key   String @unique
+  key   String
   value String
+  companyId String?
+  workspace Company? @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@index([companyId])
 }

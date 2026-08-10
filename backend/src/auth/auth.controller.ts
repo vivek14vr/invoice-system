@@ -17,7 +17,7 @@ import { Public } from './public.decorator';
 import { AdminOnly } from './admin.decorator';
 
 type AuthenticatedRequest = Request & {
-  user: { id: string; email: string; name: string };
+  user: { id: string; email: string; name: string; companyId?: string | null };
 };
 
 @Controller('auth')
@@ -54,8 +54,8 @@ export class AuthController {
 
   @Get('users')
   @AdminOnly()
-  users() {
-    return this.authService.listUsers();
+  users(@Req() request: AuthenticatedRequest) {
+    return this.authService.listUsers(request.user.companyId);
   }
 
   @Post('users')
@@ -67,28 +67,48 @@ export class AuthController {
       name: string;
       password: string;
       role?: 'ADMIN' | 'READ_ONLY';
-      companyId?: string;
     },
+    @Req() request: AuthenticatedRequest,
   ) {
-    return this.authService.createUser(dto);
+    return this.authService.createUser(dto, request.user.companyId);
   }
 
   @Delete('users/:id')
   @AdminOnly()
-  removeUser(@Param('id') id: string) {
-    return this.authService.removeUser(id);
+  removeUser(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+    return this.authService.removeUser(
+      id,
+      request.user.id,
+      request.user.companyId,
+    );
   }
 
-  @Get('companies')
-  @AdminOnly()
-  companies() {
-    return this.authService.listCompanies();
+  @Get('workspaces')
+  workspaces(@Req() request: AuthenticatedRequest) {
+    return this.authService.listWorkspaces(request.user.id);
   }
 
-  @Post('companies')
+  @Post('workspaces')
   @AdminOnly()
-  createCompany(@Body() dto: { name: string }) {
-    return this.authService.createCompany(dto.name);
+  createWorkspace(
+    @Body() dto: { name: string },
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.authService.createWorkspace(request.user.id, dto.name);
+  }
+
+  @Post('switch-workspace')
+  async switchWorkspace(
+    @Body() dto: { companyId: string },
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const token = request.cookies?.[SESSION_COOKIE] as string | undefined;
+    const user = await this.authService.switchWorkspace(
+      request.user.id,
+      token,
+      dto.companyId,
+    );
+    return { user };
   }
 
   @Post('logout')

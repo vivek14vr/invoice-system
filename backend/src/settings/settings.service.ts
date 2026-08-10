@@ -82,44 +82,53 @@ export class SettingsService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    await this.ensureDefaults();
+    const companies = await this.prisma.company.findMany({
+      select: { id: true },
+    });
+    await Promise.all(
+      companies.map((company) => this.ensureDefaults(company.id)),
+    );
   }
 
-  private async ensureDefaults() {
+  async ensureDefaults(companyId: string) {
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       await this.prisma.setting.upsert({
-        where: { key },
-        create: { key, value },
+        where: { companyId_key: { companyId, key } },
+        create: { companyId, key, value },
         update: {},
       });
     }
 
-    const taxCount = await this.prisma.taxRate.count();
+    const taxCount = await this.prisma.taxRate.count({ where: { companyId } });
     if (taxCount === 0) {
       await this.prisma.taxRate.createMany({
         data: [
-          { name: 'GST 5%', rate: 5, isDefault: false },
-          { name: 'GST 12%', rate: 12, isDefault: false },
-          { name: 'GST 18%', rate: 18, isDefault: true },
-          { name: 'No Tax', rate: 0, isDefault: false },
+          { name: 'GST 5%', rate: 5, isDefault: false, companyId },
+          { name: 'GST 12%', rate: 12, isDefault: false, companyId },
+          { name: 'GST 18%', rate: 18, isDefault: true, companyId },
+          { name: 'No Tax', rate: 0, isDefault: false, companyId },
         ],
       });
     }
 
-    const methodCount = await this.prisma.paymentMethod.count();
+    const methodCount = await this.prisma.paymentMethod.count({
+      where: { companyId },
+    });
     if (methodCount === 0) {
       await this.prisma.paymentMethod.createMany({
         data: [
-          { name: 'Bank Transfer', isDefault: false },
-          { name: 'Cash', isDefault: true },
-          { name: 'Cheque', isDefault: false },
-          { name: 'Credit Card', isDefault: false },
-          { name: 'UPI', isDefault: false },
+          { name: 'Bank Transfer', isDefault: false, companyId },
+          { name: 'Cash', isDefault: true, companyId },
+          { name: 'Cheque', isDefault: false, companyId },
+          { name: 'Credit Card', isDefault: false, companyId },
+          { name: 'UPI', isDefault: false, companyId },
         ],
       });
     }
 
-    const groupCount = await this.prisma.invoiceGroup.count();
+    const groupCount = await this.prisma.invoiceGroup.count({
+      where: { companyId },
+    });
     if (groupCount === 0) {
       await this.prisma.invoiceGroup.createMany({
         data: [
@@ -128,32 +137,49 @@ export class SettingsService implements OnModuleInit {
             template: 'INV-{{{year}}}-{{{id}}}',
             nextId: 1,
             isDefault: true,
+            companyId,
           },
           {
             name: 'Quotation Series',
             template: 'QUO-{{{year}}}-{{{id}}}',
             nextId: 1,
             isDefault: true,
+            companyId,
           },
         ],
       });
     }
   }
 
-  async getAll() {
+  async getAll(companyId?: string | null) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
+    await this.ensureDefaults(companyId);
     const [settings, taxRates, paymentMethods, invoiceGroups] =
       await Promise.all([
-        this.prisma.setting.findMany(),
-        this.prisma.taxRate.findMany({ orderBy: { rate: 'asc' } }),
-        this.prisma.paymentMethod.findMany({ orderBy: { name: 'asc' } }),
-        this.prisma.invoiceGroup.findMany({ orderBy: { name: 'asc' } }),
+        this.prisma.setting.findMany({ where: { companyId } }),
+        this.prisma.taxRate.findMany({
+          where: { companyId },
+          orderBy: { rate: 'asc' },
+        }),
+        this.prisma.paymentMethod.findMany({
+          where: { companyId },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.invoiceGroup.findMany({
+          where: { companyId },
+          orderBy: { name: 'asc' },
+        }),
       ]);
 
     const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
     return { settings: map, taxRates, paymentMethods, invoiceGroups };
   }
 
-  async updateSettings(data: Record<string, string>) {
+  async updateSettings(
+    data: Record<string, string>,
+    companyId?: string | null,
+  ) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
     const entries = Object.entries(data);
     for (const [key, value] of entries) {
       if (typeof value !== 'string') {
@@ -164,71 +190,96 @@ export class SettingsService implements OnModuleInit {
     await this.prisma.$transaction(
       entries.map(([key, value]) =>
         this.prisma.setting.upsert({
-          where: { key },
-          create: { key, value },
+          where: { companyId_key: { companyId, key } },
+          create: { companyId, key, value },
           update: { value },
         }),
       ),
     );
-    return this.getAll();
+    return this.getAll(companyId);
   }
 
-  createTaxRate(dto: CreateTaxRateDto) {
+  createTaxRate(dto: CreateTaxRateDto, companyId?: string | null) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
     return this.prisma.$transaction(async (tx) => {
       if (dto.isDefault) {
-        await tx.taxRate.updateMany({ data: { isDefault: false } });
+        await tx.taxRate.updateMany({
+          where: { companyId },
+          data: { isDefault: false },
+        });
       }
-      return tx.taxRate.create({ data: dto });
+      return tx.taxRate.create({ data: { ...dto, companyId } });
     });
   }
 
-  async removeTaxRate(id: string) {
-    const row = await this.prisma.taxRate.findUnique({ where: { id } });
+  async removeTaxRate(id: string, companyId?: string | null) {
+    const row = await this.prisma.taxRate.findFirst({
+      where: { id, companyId: companyId ?? undefined },
+    });
     if (!row) throw new NotFoundException('Tax rate not found');
     await this.prisma.taxRate.delete({ where: { id } });
     return { ok: true };
   }
 
-  createPaymentMethod(dto: CreatePaymentMethodDto) {
+  createPaymentMethod(dto: CreatePaymentMethodDto, companyId?: string | null) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
     return this.prisma.$transaction(async (tx) => {
       if (dto.isDefault) {
-        await tx.paymentMethod.updateMany({ data: { isDefault: false } });
+        await tx.paymentMethod.updateMany({
+          where: { companyId },
+          data: { isDefault: false },
+        });
       }
-      return tx.paymentMethod.create({ data: dto });
+      return tx.paymentMethod.create({ data: { ...dto, companyId } });
     });
   }
 
-  async removePaymentMethod(id: string) {
-    const row = await this.prisma.paymentMethod.findUnique({ where: { id } });
+  async removePaymentMethod(id: string, companyId?: string | null) {
+    const row = await this.prisma.paymentMethod.findFirst({
+      where: { id, companyId: companyId ?? undefined },
+    });
     if (!row) throw new NotFoundException('Payment method not found');
     await this.prisma.paymentMethod.delete({ where: { id } });
     return { ok: true };
   }
 
-  createInvoiceGroup(dto: CreateInvoiceGroupDto) {
+  createInvoiceGroup(dto: CreateInvoiceGroupDto, companyId?: string | null) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
     return this.prisma.invoiceGroup.create({
       data: {
         name: dto.name,
         template: dto.template,
         nextId: dto.nextId ?? 1,
         isDefault: dto.isDefault ?? false,
+        companyId,
       },
     });
   }
 
-  async updateInvoiceGroup(id: string, dto: UpdateInvoiceGroupDto) {
-    const group = await this.prisma.invoiceGroup.findUnique({ where: { id } });
+  async updateInvoiceGroup(
+    id: string,
+    dto: UpdateInvoiceGroupDto,
+    companyId?: string | null,
+  ) {
+    const group = await this.prisma.invoiceGroup.findFirst({
+      where: { id, companyId: companyId ?? undefined },
+    });
     if (!group) throw new NotFoundException('Invoice group not found');
     return this.prisma.$transaction(async (tx) => {
       if (dto.isDefault) {
-        await tx.invoiceGroup.updateMany({ data: { isDefault: false } });
+        await tx.invoiceGroup.updateMany({
+          where: { companyId },
+          data: { isDefault: false },
+        });
       }
       return tx.invoiceGroup.update({ where: { id }, data: dto });
     });
   }
 
-  async removeInvoiceGroup(id: string) {
-    const row = await this.prisma.invoiceGroup.findUnique({ where: { id } });
+  async removeInvoiceGroup(id: string, companyId?: string | null) {
+    const row = await this.prisma.invoiceGroup.findFirst({
+      where: { id, companyId: companyId ?? undefined },
+    });
     if (!row) throw new NotFoundException('Invoice group not found');
     await this.prisma.invoiceGroup.delete({ where: { id } });
     return { ok: true };

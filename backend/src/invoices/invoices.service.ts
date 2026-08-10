@@ -86,14 +86,26 @@ function computeTotals(items: InvoiceItemDto[], discountPercent = 0) {
 export class InvoicesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private gstTaxLines(client: { vatGstNumber?: string | null }) {
+  private async gstTaxLines(
+    client: { vatGstNumber?: string | null },
+    companyId?: string | null,
+  ) {
+    const taxNameSettings = await this.prisma.setting.findMany({
+      where: {
+        companyId: companyId ?? undefined,
+        key: { in: ['tax_cgst_name', 'tax_sgst_name', 'tax_igst_name'] },
+      },
+    });
+    const names = Object.fromEntries(
+      taxNameSettings.map((setting) => [setting.key, setting.value]),
+    );
     const gstStateCode = client.vatGstNumber?.trim().slice(0, 2);
     return gstStateCode === '09'
       ? [
-          { name: 'CGST', rate: 9 },
-          { name: 'SGST', rate: 9 },
+          { name: names.tax_cgst_name?.trim() || 'CGST', rate: 9 },
+          { name: names.tax_sgst_name?.trim() || 'SGST', rate: 9 },
         ]
-      : [{ name: 'IGST', rate: 18 }];
+      : [{ name: names.tax_igst_name?.trim() || 'IGST', rate: 18 }];
   }
 
   private validateLineItemAmounts(
@@ -108,14 +120,17 @@ export class InvoicesService {
     }
   }
 
-  private async nextInvoiceNumber(invoiceGroupId?: string) {
+  private async nextInvoiceNumber(
+    invoiceGroupId?: string,
+    companyId?: string | null,
+  ) {
     const year = new Date().getFullYear();
     const group = invoiceGroupId
-      ? await this.prisma.invoiceGroup.findUnique({
-          where: { id: invoiceGroupId },
+      ? await this.prisma.invoiceGroup.findFirst({
+          where: { id: invoiceGroupId, companyId: companyId ?? undefined },
         })
       : await this.prisma.invoiceGroup.findFirst({
-          where: { name: 'Invoice Series' },
+          where: { name: 'Invoice Series', companyId: companyId ?? undefined },
         });
 
     let next = 1;
@@ -134,12 +149,18 @@ export class InvoicesService {
     return { invoiceNumber, invoiceGroupId: group?.id ?? null };
   }
 
-  private async taxContext(client: {
-    state?: string | null;
-    stateCode?: string | null;
-  }) {
+  private async taxContext(
+    client: {
+      state?: string | null;
+      stateCode?: string | null;
+    },
+    companyId?: string | null,
+  ) {
     const rows = await this.prisma.setting.findMany({
-      where: { key: { in: ['company_state', 'company_state_code'] } },
+      where: {
+        companyId: companyId ?? undefined,
+        key: { in: ['company_state', 'company_state_code'] },
+      },
     });
     const settings = Object.fromEntries(
       rows.map((row) => [row.key, row.value]),
@@ -158,10 +179,15 @@ export class InvoicesService {
     };
   }
 
-  async findAll(search?: string, status?: InvoiceStatus) {
+  async findAll(
+    search?: string,
+    status?: InvoiceStatus,
+    companyId?: string | null,
+  ) {
     const invoices = await this.prisma.invoice.findMany({
       where: {
         AND: [
+          companyId ? { companyId } : {},
           status ? { status } : {},
           search
             ? {
@@ -193,24 +219,25 @@ export class InvoicesService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, companyId?: string | null) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
       include: { client: true, items: true, payments: true },
     });
-    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (!invoice || (companyId && invoice.companyId !== companyId))
+      throw new NotFoundException('Invoice not found');
     return invoice;
   }
 
   async create(dto: CreateInvoiceDto, companyId?: string | null) {
     const client = await this.prisma.client.findUnique({
-      where: { id: dto.clientId },
+      where: { id: dto.clientId, companyId: companyId ?? undefined },
     });
     if (!client) throw new NotFoundException('Client not found');
 
     const status = dto.status ?? InvoiceStatus.DRAFT;
     this.validateLineItemAmounts(dto.items, status);
-    const taxLines = this.gstTaxLines(client);
+    const taxLines = await this.gstTaxLines(client, companyId);
     const taxRate = taxLines.reduce((sum, tax) => sum + tax.rate, 0);
     const items = dto.items.map((item) => ({ ...item, taxRate }));
     const discountPercent = dto.discountPercent ?? 0;
@@ -218,6 +245,7 @@ export class InvoicesService {
       computeTotals(items, discountPercent);
     const { invoiceNumber, invoiceGroupId } = await this.nextInvoiceNumber(
       dto.invoiceGroupId,
+      companyId,
     );
     const finalInvoiceNumber = `${dto.invoiceNumberPrefix ?? ''}${invoiceNumber}${dto.invoiceNumberSuffix ?? ''}`;
 
@@ -277,11 +305,13 @@ export class InvoicesService {
     });
   }
 
-  async update(id: string, dto: UpdateInvoiceDto) {
-    const existing = await this.findOne(id);
+  async update(id: string, dto: UpdateInvoiceDto, companyId?: string | null) {
+    const existing = await this.findOne(id, companyId);
 
     const client = dto.clientId
-      ? await this.prisma.client.findUnique({ where: { id: dto.clientId } })
+      ? await this.prisma.client.findFirst({
+          where: { id: dto.clientId, companyId: companyId ?? undefined },
+        })
       : existing.client;
     if (!client) throw new NotFoundException('Client not found');
     const data: Record<string, unknown> = {};
@@ -291,8 +321,8 @@ export class InvoicesService {
       if (!invoiceNumber) {
         throw new BadRequestException('Invoice number is required');
       }
-      const duplicate = await this.prisma.invoice.findUnique({
-        where: { invoiceNumber },
+      const duplicate = await this.prisma.invoice.findFirst({
+        where: { invoiceNumber, companyId: companyId ?? undefined },
         select: { id: true },
       });
       if (duplicate && duplicate.id !== id) {
@@ -379,7 +409,7 @@ export class InvoicesService {
           unitPrice: Number(item.unitPrice),
           taxRate: Number(item.taxRate),
         }));
-      const taxLines = this.gstTaxLines(client);
+      const taxLines = await this.gstTaxLines(client, companyId);
       const taxRate = taxLines.reduce((sum, tax) => sum + tax.rate, 0);
       const normalizedItems = items.map((item) => ({ ...item, taxRate }));
       const discountPercent =
@@ -418,15 +448,22 @@ export class InvoicesService {
     });
   }
 
-  async createCreditNote(id: string, reason?: string) {
-    const original = await this.findOne(id);
+  async createCreditNote(
+    id: string,
+    reason?: string,
+    companyId?: string | null,
+  ) {
+    const original = await this.findOne(id, companyId);
     if (original.status === InvoiceStatus.CREDIT_NOTE) {
       throw new NotFoundException(
         'A credit note cannot be created from another credit note',
       );
     }
     const { invoiceNumber: sequenceNumber, invoiceGroupId } =
-      await this.nextInvoiceNumber(original.invoiceGroupId ?? undefined);
+      await this.nextInvoiceNumber(
+        original.invoiceGroupId ?? undefined,
+        companyId,
+      );
     const creditNoteNumber = `CN-${sequenceNumber}`;
     const subtotal = money(-Number(original.subtotal));
     const taxAmount = money(-Number(original.taxAmount));
@@ -466,15 +503,17 @@ export class InvoicesService {
     return note;
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, companyId?: string | null) {
+    await this.findOne(id, companyId);
     await this.prisma.invoice.delete({ where: { id } });
     return { ok: true };
   }
 
-  async generatePdf(id: string): Promise<Buffer> {
-    const invoice = await this.findOne(id);
-    const settingsRows = await this.prisma.setting.findMany();
+  async generatePdf(id: string, companyId?: string | null): Promise<Buffer> {
+    const invoice = await this.findOne(id, companyId);
+    const settingsRows = await this.prisma.setting.findMany({
+      where: { companyId: invoice.companyId ?? undefined },
+    });
     const settings = Object.fromEntries(
       settingsRows.map((s) => [s.key, s.value]),
     );
@@ -483,7 +522,8 @@ export class InvoicesService {
       {
         invoiceNumber: invoice.invoiceNumber,
         isCreditNote: invoice.status === InvoiceStatus.CREDIT_NOTE,
-        taxType: (await this.taxContext(invoice.client)).taxType,
+        taxType: (await this.taxContext(invoice.client, invoice.companyId))
+          .taxType,
         issueDate: invoice.issueDate,
         dueDate: invoice.dueDate,
         terms: invoice.terms,

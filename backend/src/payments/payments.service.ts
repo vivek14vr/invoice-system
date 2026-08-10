@@ -11,19 +11,21 @@ import { CreatePaymentDto } from './dto/payment.dto';
 export class PaymentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
+  findAll(companyId?: string | null) {
     return this.prisma.payment.findMany({
+      where: companyId ? { companyId } : {},
       include: { invoice: true, client: true },
       orderBy: { paidAt: 'desc' },
     });
   }
 
-  async create(dto: CreatePaymentDto) {
+  async create(dto: CreatePaymentDto, companyId?: string | null) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: dto.invoiceId },
       include: { payments: { select: { amount: true } } },
     });
-    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (!invoice || (companyId && invoice.companyId !== companyId))
+      throw new NotFoundException('Invoice not found');
     if (invoice.status === InvoiceStatus.CANCELLED) {
       throw new BadRequestException(
         'Cannot record a payment for a cancelled invoice',
@@ -53,6 +55,7 @@ export class PaymentsService {
           amount: dto.amount,
           paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
           notes: dto.notes,
+          companyId: companyId ?? undefined,
         },
       });
       const paid = alreadyPaid + dto.amount;
@@ -74,9 +77,10 @@ export class PaymentsService {
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string, companyId?: string | null) {
     const payment = await this.prisma.payment.findUnique({ where: { id } });
-    if (!payment) throw new NotFoundException('Payment not found');
+    if (!payment || (companyId && payment.companyId !== companyId))
+      throw new NotFoundException('Payment not found');
     await this.prisma.$transaction(async (tx) => {
       await tx.payment.delete({ where: { id } });
       const [invoice, paidSum] = await Promise.all([

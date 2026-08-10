@@ -28,14 +28,29 @@ export class InvoicesController {
   findAll(
     @Query('search') search?: string,
     @Query('status') status?: InvoiceStatus,
+    @Req() request?: Request & { user: { companyId?: string | null } },
   ) {
-    return this.invoicesService.findAll(search, status);
+    return this.invoicesService.findAll(
+      search,
+      status,
+      request?.user.companyId,
+    );
   }
 
   @Get(':id/pdf')
-  async pdf(@Param('id') id: string, @Res() res: Response) {
-    const buffer = await this.invoicesService.generatePdf(id);
-    const invoice = await this.invoicesService.findOne(id);
+  async pdf(
+    @Param('id') id: string,
+    @Res() res: Response,
+    @Req() request: Request & { user: { companyId?: string | null } },
+  ) {
+    const buffer = await this.invoicesService.generatePdf(
+      id,
+      request.user.companyId,
+    );
+    const invoice = await this.invoicesService.findOne(
+      id,
+      request.user.companyId,
+    );
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${invoice.invoiceNumber}.pdf"`,
@@ -45,8 +60,11 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.invoicesService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @Req() request: Request & { user: { companyId?: string | null } },
+  ) {
+    return this.invoicesService.findOne(id, request.user.companyId);
   }
 
   @Post()
@@ -58,17 +76,32 @@ export class InvoicesController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateInvoiceDto) {
-    return this.invoicesService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateInvoiceDto,
+    @Req() request: Request & { user: { companyId?: string | null } },
+  ) {
+    return this.invoicesService.update(id, dto, request.user.companyId);
   }
 
   @Post(':id/credit-note')
-  creditNote(@Param('id') id: string, @Body() dto: CreateCreditNoteDto) {
-    return this.invoicesService.createCreditNote(id, dto.reason);
+  creditNote(
+    @Param('id') id: string,
+    @Body() dto: CreateCreditNoteDto,
+    @Req() request: Request & { user: { companyId?: string | null } },
+  ) {
+    return this.invoicesService.createCreditNote(
+      id,
+      dto.reason,
+      request.user.companyId,
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.invoicesService.remove(id);
+  remove(
+    @Param('id') id: string,
+    @Req() request: Request & { user: { companyId?: string | null } },
+  ) {
+    return this.invoicesService.remove(id, request.user.companyId);
   }
 }

@@ -6,7 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOverview() {
+  async getOverview(companyId?: string | null) {
+    const workspaceWhere = companyId ? { companyId } : {};
     const [
       clientCount,
       invoices,
@@ -15,8 +16,9 @@ export class DashboardService {
       recentInvoices,
       recentQuotes,
     ] = await Promise.all([
-      this.prisma.client.count(),
+      this.prisma.client.count({ where: workspaceWhere }),
       this.prisma.invoice.findMany({
+        where: workspaceWhere,
         select: {
           status: true,
           total: true,
@@ -24,14 +26,22 @@ export class DashboardService {
           payments: { select: { amount: true } },
         },
       }),
-      this.prisma.quotation.findMany({ select: { status: true, total: true } }),
-      this.prisma.payment.findMany({ select: { amount: true } }),
+      this.prisma.quotation.findMany({
+        where: workspaceWhere,
+        select: { status: true, total: true },
+      }),
+      this.prisma.payment.findMany({
+        where: workspaceWhere,
+        select: { amount: true },
+      }),
       this.prisma.invoice.findMany({
+        where: workspaceWhere,
         take: 5,
         orderBy: { createdAt: 'desc' },
         include: { client: true, payments: { select: { amount: true } } },
       }),
       this.prisma.quotation.findMany({
+        where: workspaceWhere,
         take: 5,
         orderBy: { createdAt: 'desc' },
         include: { client: true },
