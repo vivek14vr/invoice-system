@@ -23,28 +23,50 @@ function buildDisplayName(parts: {
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(search?: string, companyId?: string | null) {
-    return this.prisma.client.findMany({
-      where: {
-        ...(companyId ? { companyId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search } },
-                { firstName: { contains: search } },
-                { lastName: { contains: search } },
-                { company: { contains: search } },
-                { email: { contains: search } },
-                { phone: { contains: search } },
-                { mobile: { contains: search } },
-                { city: { contains: search } },
-              ],
-            }
-          : {}),
+  async findAll(
+    search?: string,
+    companyId?: string | null,
+    page = 1,
+    pageSize = 10,
+    sortBy: 'name' | 'createdAt' = 'createdAt',
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ) {
+    const where = {
+      ...(companyId ? { companyId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search } },
+              { firstName: { contains: search } },
+              { lastName: { contains: search } },
+              { company: { contains: search } },
+              { email: { contains: search } },
+              { phone: { contains: search } },
+              { mobile: { contains: search } },
+              { city: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.client.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { _count: { select: { invoices: true } } },
+      }),
+      this.prisma.client.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
-      orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { invoices: true } } },
-    });
+    };
   }
 
   async findOne(id: string, companyId?: string | null) {

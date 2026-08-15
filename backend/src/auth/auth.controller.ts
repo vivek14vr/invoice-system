@@ -29,14 +29,9 @@ export class AuthController {
   @HttpCode(200)
   async login(
     @Body() dto: LoginDto,
-    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const forwarded = request.headers['x-forwarded-for'];
-    const ip = Array.isArray(forwarded)
-      ? forwarded[0]
-      : forwarded?.split(',')[0]?.trim() || request.ip || 'unknown';
-    const result = await this.authService.login(dto.email, dto.password, ip);
+    const result = await this.authService.login(dto.email, dto.password);
     response.cookie(SESSION_COOKIE, result.token, {
       httpOnly: true,
       sameSite: 'strict',

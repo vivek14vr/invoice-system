@@ -28,12 +28,29 @@ export class InvoicesController {
   findAll(
     @Query('search') search?: string,
     @Query('status') status?: InvoiceStatus,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy')
+    sortBy?: 'invoiceNumber' | 'issueDate' | 'dueDate' | 'createdAt',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
     @Req() request?: Request & { user: { companyId?: string | null } },
   ) {
     return this.invoicesService.findAll(
       search,
       status,
       request?.user.companyId,
+      Math.max(1, Number(page) || 1),
+      Math.min(100, Math.max(1, Number(pageSize) || 10)),
+      ['invoiceNumber', 'issueDate', 'dueDate', 'createdAt'].includes(
+        sortBy ?? '',
+      )
+        ? sortBy
+        : 'createdAt',
+      sortOrder === 'asc' ? 'asc' : 'desc',
+      dateFrom,
+      dateTo,
     );
   }
 

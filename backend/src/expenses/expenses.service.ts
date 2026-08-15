@@ -23,14 +23,18 @@ export class ExpensesService {
     const gstAmount = money((amount * gstRate) / 100);
     return {
       invoiceNumber: dto.invoiceNumber.trim(),
+      vendorName: dto.vendorName?.trim() || null,
+      vatGstNumber: dto.vatGstNumber?.trim() || null,
       category: dto.category.trim(),
       paymentMode: dto.paymentMode.trim(),
       expenseDate: new Date(dto.expenseDate),
       itemDetails: dto.itemDetails.trim(),
+      quantity: money(dto.quantity ?? 1),
       amount,
       gstRate,
       gstAmount,
       total: money(amount + gstAmount),
+      balanceDue: money(dto.balanceDue ?? 0),
       notes: dto.notes?.trim() || null,
     };
   }

@@ -22,8 +22,19 @@ export class ClientsController {
   findAll(
     @Req() request: AuthenticatedRequest,
     @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: 'name' | 'createdAt',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
   ) {
-    return this.clientsService.findAll(search, request.user.companyId);
+    return this.clientsService.findAll(
+      search,
+      request.user.companyId,
+      Math.max(1, Number(page) || 1),
+      Math.min(100, Math.max(1, Number(pageSize) || 10)),
+      sortBy === 'name' ? 'name' : 'createdAt',
+      sortOrder === 'asc' ? 'asc' : 'desc',
+    );
   }
 
   @Get(':id')

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Users } from "lucide-react";
-import { api, Client } from "@/lib/api";
+import { api, Client, PaginatedResponse } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 import {
   Card,
   EmptyState,
@@ -15,17 +16,20 @@ import {
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [sortBy, setSortBy] = useState<"createdAt" | "name">("createdAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [error, setError] = useState("");
 
   const load = useCallback(
     () =>
       api
-        .get<Client[]>(
-          `/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`,
-        )
-        .then(setClients)
+        .get<PaginatedResponse<Client>>(`/clients?${new URLSearchParams({ page: String(page), pageSize: "10", sortBy, sortOrder, ...(search ? { search } : {}) })}`)
+        .then((response) => { setClients(response.data); setTotal(response.meta.total); setTotalPages(response.meta.totalPages); })
         .catch((e: Error) => setError(e.message)),
-    [search],
+    [search, page, sortBy, sortOrder],
   );
 
   useEffect(() => {
@@ -61,9 +65,20 @@ export default function ClientsPage() {
       <div className="mb-4">
         <SearchInput
           value={search}
-          onChange={setSearch}
+          onChange={(value) => { setSearch(value); setPage(1); }}
           placeholder="Search clients..."
         />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select aria-label="Sort clients by" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortBy} onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setPage(1); }}>
+          <option value="createdAt">Sort by newest</option>
+          <option value="name">Sort by client name</option>
+        </select>
+        <select aria-label="Client sort order" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value as typeof sortOrder); setPage(1); }}>
+          <option value="desc">Descending</option>
+          <option value="asc">Ascending</option>
+        </select>
       </div>
 
       <Card>
@@ -138,6 +153,7 @@ export default function ClientsPage() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
       </Card>
     </div>
   );

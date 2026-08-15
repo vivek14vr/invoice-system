@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, Plus, Trash2 } from "lucide-react";
-import { api, Invoice } from "@/lib/api";
+import { api, Invoice, PaginatedResponse } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 import { formatDate, formatMoney } from "@/lib/format";
 import {
   Card,
@@ -23,6 +24,13 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<(typeof filters)[number]>("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<"createdAt" | "invoiceNumber" | "issueDate" | "dueDate">("createdAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
 
@@ -30,12 +38,18 @@ export default function InvoicesPage() {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (status !== "ALL") params.set("status", status);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    params.set("sortBy", sortBy);
+    params.set("sortOrder", sortOrder);
+    params.set("page", String(page));
+    params.set("pageSize", "10");
     const qs = params.toString();
     api
-      .get<Invoice[]>(`/invoices${qs ? `?${qs}` : ""}`)
-      .then(setInvoices)
+      .get<PaginatedResponse<Invoice>>(`/invoices${qs ? `?${qs}` : ""}`)
+      .then((response) => { setInvoices(response.data); setTotal(response.meta.total); setTotalPages(response.meta.totalPages); })
       .catch((e: Error) => setError(e.message));
-  }, [search, status]);
+  }, [search, status, dateFrom, dateTo, sortBy, sortOrder, page]);
 
   useEffect(() => {
     const t = setTimeout(load, 200);
@@ -93,7 +107,7 @@ export default function InvoicesPage() {
         <div className="flex-1">
           <SearchInput
             value={search}
-            onChange={setSearch}
+            onChange={(value) => { setSearch(value); setPage(1); }}
             placeholder="Search by invoice number..."
           />
         </div>
@@ -102,7 +116,7 @@ export default function InvoicesPage() {
             <button
               key={f}
               type="button"
-              onClick={() => setStatus(f)}
+              onClick={() => { setStatus(f); setPage(1); }}
               className={`rounded-lg px-3 py-2 text-sm ${
                 status === f
                   ? "bg-blue-600 text-white"
@@ -113,6 +127,15 @@ export default function InvoicesPage() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-3">
+        <label className="text-sm text-slate-600">From <input type="date" className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} /></label>
+        <label className="text-sm text-slate-600">To <input type="date" className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} /></label>
+        <select aria-label="Sort invoices by" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortBy} onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setPage(1); }}>
+          <option value="createdAt">Sort by created date</option><option value="invoiceNumber">Invoice number</option><option value="issueDate">Invoice date</option><option value="dueDate">Due date</option>
+        </select>
+        <select aria-label="Invoice sort order" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value as typeof sortOrder); setPage(1); }}><option value="desc">Descending</option><option value="asc">Ascending</option></select>
       </div>
 
       <Card>
@@ -236,6 +259,7 @@ export default function InvoicesPage() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
       </Card>
     </div>
   );

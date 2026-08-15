@@ -4,7 +4,13 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FilePlus, Plus, Trash2 } from "lucide-react";
-import { api, Client, Product, SettingsPayload } from "@/lib/api";
+import {
+  api,
+  Client,
+  PaginatedResponse,
+  Product,
+  SettingsPayload,
+} from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import {
   Card,
@@ -49,6 +55,27 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function normalizeState(value?: string | null) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return "";
+  const codes: Record<string, string> = {
+    ap: "37", "andhra pradesh": "37", andhra: "37",
+    arunachal: "12", "arunachal pradesh": "12", assam: "18",
+    bihar: "10", chhattisgarh: "22", goa: "30", gujarat: "24",
+    haryana: "06", "himachal pradesh": "02", jharkhand: "20",
+    karnataka: "29", kerala: "32", "madhya pradesh": "23",
+    mp: "23", maharashtra: "27", mh: "27", manipur: "14",
+    meghalaya: "17", mizoram: "15", nagaland: "13", odisha: "21",
+    orissa: "21", punjab: "03", rajasthan: "08", rj: "08",
+    sikkim: "11", "tamil nadu": "33", tn: "33", telangana: "36",
+    tg: "36", tripura: "16", uttarakhand: "05", uk: "05",
+    "west bengal": "19", wb: "19", delhi: "07", dl: "07",
+    "jammu and kashmir": "01", ladakh: "38", puducherry: "34",
+    chandigarh: "04", "uttar pradesh": "09", up: "09",
+  };
+  return codes[normalized] ?? normalized;
+}
+
 export default function NewInvoicePage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
@@ -56,6 +83,7 @@ export default function NewInvoicePage() {
   const [invoiceGroups, setInvoiceGroups] = useState<
     SettingsPayload["invoiceGroups"]
   >([]);
+  const [sellerState, setSellerState] = useState("09");
   const [clientSearch, setClientSearch] = useState("");
   const [clientId, setClientId] = useState("");
   const [showClientList, setShowClientList] = useState(false);
@@ -98,14 +126,19 @@ export default function NewInvoicePage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<Client[]>("/clients"),
+      api.get<Client[] | PaginatedResponse<Client>>("/clients"),
       api.get<Product[]>("/products"),
       api.get<SettingsPayload>("/settings"),
     ])
       .then(([c, p, s]) => {
-        setClients(c);
+        setClients(Array.isArray(c) ? c : c.data);
         setProducts(p);
         setInvoiceGroups(s.invoiceGroups);
+        setSellerState(
+          normalizeState(s.settings.company_state_code) ||
+            normalizeState(s.settings.company_state) ||
+            "09",
+        );
         const invGroups = s.invoiceGroups.filter((g) =>
           g.name.toLowerCase().includes("invoice"),
         );
@@ -154,10 +187,16 @@ export default function NewInvoicePage() {
   }, [invoiceGroupId, invoiceGroups]);
   const invoiceTaxLines = useMemo(() => {
     if (!selectedClient) return [];
-    return selectedClient.vatGstNumber?.trim().startsWith("09")
+    const gstState = selectedClient.vatGstNumber?.trim().slice(0, 2);
+    const buyerState =
+      normalizeState(selectedClient.stateCode) ||
+      normalizeState(selectedClient.state) ||
+      (/^\d{2}$/.test(gstState ?? '') ? gstState : '') ||
+      sellerState;
+    return buyerState === sellerState
       ? [{ name: "CGST", rate: 9 }, { name: "SGST", rate: 9 }]
       : [{ name: "IGST", rate: 18 }];
-  }, [selectedClient]);
+  }, [selectedClient, sellerState]);
   const invoiceTaxRate = invoiceTaxLines.reduce((sum, tax) => sum + tax.rate, 0);
 
   const totals = useMemo(() => {
@@ -423,7 +462,7 @@ export default function NewInvoicePage() {
           <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <p className="mb-2 text-sm font-medium text-slate-700">Invoice GST</p>
             {selectedClient ? <p className="text-sm text-slate-700">Client GSTIN: <strong>{selectedClient.vatGstNumber || "Not provided"}</strong> · {invoiceTaxLines.map((tax) => `${tax.name} ${tax.rate}%`).join(" + ")}</p> : <p className="text-sm text-slate-500">Select a client to apply GST automatically.</p>}
-            <p className="mt-2 text-xs text-slate-500">GSTIN beginning with 09 applies CGST 9% + SGST 9%. All other GSTINs apply IGST 18%.</p>
+            <p className="mt-2 text-xs text-slate-500">Same-state invoices apply CGST 9% + SGST 9%. IGST 18% applies only when the client state differs from the company state.</p>
           </div>
 
           <div className="space-y-4">

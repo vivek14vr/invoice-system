@@ -19,12 +19,16 @@ function today() {
 
 const initialForm = () => ({
   invoiceNumber: "",
+  vendorName: "",
+  vatGstNumber: "",
   category: "",
   paymentMode: "",
   expenseDate: today(),
   itemDetails: "",
+  quantity: "1",
   amount: "",
   gstRate: "18",
+  balanceDue: "0",
   notes: "",
 });
 
@@ -65,12 +69,16 @@ export default function ExpensesPage() {
     try {
       const created = await api.post<Expense>("/expenses", {
         invoiceNumber: form.invoiceNumber.trim(),
+        vendorName: form.vendorName.trim() || undefined,
+        vatGstNumber: form.vatGstNumber.trim() || undefined,
         category: form.category.trim(),
         paymentMode: form.paymentMode.trim(),
         expenseDate: form.expenseDate,
         itemDetails: form.itemDetails.trim(),
+        quantity: Number(form.quantity) || 0,
         amount: totals.amount,
         gstRate: totals.gstRate,
+        balanceDue: Number(form.balanceDue) || 0,
         notes: form.notes.trim() || undefined,
       });
       setExpenses((current) => [created, ...current]);
@@ -115,6 +123,12 @@ export default function ExpensesPage() {
             <Field label="Invoice No. *">
               <input className={inputClass} value={form.invoiceNumber} onChange={(event) => update("invoiceNumber", event.target.value)} required />
             </Field>
+            <Field label="Vendor Name">
+              <input className={inputClass} placeholder="e.g. ABC Suppliers" value={form.vendorName} onChange={(event) => update("vendorName", event.target.value)} />
+            </Field>
+            <Field label="VAT ID / GST Number">
+              <input className={inputClass} placeholder="Optional" value={form.vatGstNumber} onChange={(event) => update("vatGstNumber", event.target.value)} />
+            </Field>
             <Field label="Expense Category *">
               <input className={inputClass} placeholder="e.g. Travel, Office supplies" value={form.category} onChange={(event) => update("category", event.target.value)} required />
             </Field>
@@ -127,6 +141,12 @@ export default function ExpensesPage() {
             </Field>
             <Field label="Amount (before GST) *">
               <input type="number" min="0" step="0.01" className={inputClass} value={form.amount} onChange={(event) => update("amount", event.target.value)} required />
+            </Field>
+            <Field label="Quantity">
+              <input type="number" min="0" step="0.01" className={inputClass} value={form.quantity} onChange={(event) => update("quantity", event.target.value)} />
+            </Field>
+            <Field label="Balance Due">
+              <input type="number" min="0" step="0.01" className={inputClass} value={form.balanceDue} onChange={(event) => update("balanceDue", event.target.value)} />
             </Field>
             <div className="rounded-lg border border-slate-200 p-3">
               <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
@@ -173,17 +193,20 @@ export default function ExpensesPage() {
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-                <tr><th className="px-4 py-3">Invoice No.</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Payment</th><th className="px-4 py-3">Item Details</th><th className="px-4 py-3 text-right">GST</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3" /></tr>
+                <tr><th className="px-4 py-3">Invoice No.</th><th className="px-4 py-3">Vendor</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Payment</th><th className="px-4 py-3">Qty</th><th className="px-4 py-3">Item Details</th><th className="px-4 py-3 text-right">GST</th><th className="px-4 py-3 text-right">Balance Due</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3" /></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {expenses.map((expense) => (
                   <tr key={expense.id}>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">{expense.invoiceNumber}</td>
+                    <td className="px-4 py-3 text-slate-600"><p>{expense.vendorName || "—"}</p>{expense.vatGstNumber ? <p className="text-xs text-slate-400">{expense.vatGstNumber}</p> : null}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(expense.expenseDate)}</td>
                     <td className="px-4 py-3 text-slate-600">{expense.category}</td>
                     <td className="px-4 py-3 text-slate-600">{expense.paymentMode}</td>
+                    <td className="px-4 py-3 text-slate-600">{expense.quantity ?? 1}</td>
                     <td className="max-w-xs px-4 py-3 text-slate-600"><p className="truncate" title={expense.itemDetails}>{expense.itemDetails}</p>{expense.notes ? <p className="mt-1 truncate text-xs text-slate-400" title={expense.notes}>Note: {expense.notes}</p> : null}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">{Number(expense.gstRate) ? `${Number(expense.gstRate)}% · ${formatMoney(expense.gstAmount)}` : "No GST"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">{formatMoney(expense.balanceDue ?? 0)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">{formatMoney(expense.total)}</td>
                     <td className="px-4 py-3 text-right"><button type="button" onClick={() => remove(expense)} className="rounded-md p-2 text-rose-500 hover:bg-rose-50" aria-label={`Delete ${expense.invoiceNumber}`}><Trash2 className="h-4 w-4" /></button></td>
                   </tr>

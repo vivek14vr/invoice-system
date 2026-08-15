@@ -24,11 +24,15 @@ type SafeUser = {
   companyId?: string | null;
   workspace?: { id: string; name: string } | null;
 };
-type FailedLogin = { count: number; resetAt: number };
+const SYSTEM_ADMIN_EMAIL = 'admin@girjasoft.com';
+const LEGACY_ADMIN_EMAILS = new Set([
+  'admin@example.com',
+  'admin@inventory.com',
+]);
 
-const failedLogins = new Map<string, FailedLogin>();
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const MAX_LOGIN_ATTEMPTS = 5;
+function isSystemAdmin(email: string) {
+  return email.trim().toLowerCase() === SYSTEM_ADMIN_EMAIL;
+}
 
 function scrypt(password: string, salt: string) {
   return new Promise<Buffer>((resolve, reject) => {
@@ -136,37 +140,51 @@ export class AuthService implements OnModuleInit {
         });
       }
 
-      // ADMIN_EMAIL is the configured owner account. Reconcile its role on
-      // startup as well as during first-run creation so an existing account
-      // cannot remain read-only after an upgrade or database restore.
-      const configuredAdminEmail =
-        process.env.ADMIN_EMAIL?.trim().toLowerCase();
-      if (configuredAdminEmail) {
-        await this.prisma.user.updateMany({
-          where: { email: configuredAdminEmail },
-          data: { role: 'ADMIN', companyId: company.id },
-        });
-        const admin = await this.prisma.user.findUnique({
-          where: { email: configuredAdminEmail },
+      // Keep the system administrator hard-coded to the default workspace.
+      // Rename the old seeded account on startup so existing installations
+      // receive the new address without creating a second administrator.
+      let admin = await this.prisma.user.findUnique({
+        where: { email: SYSTEM_ADMIN_EMAIL },
+      });
+      if (!admin) {
+        admin = await this.prisma.user.findFirst({
+          where: { email: { in: [...LEGACY_ADMIN_EMAILS] } },
         });
         if (admin) {
-          await this.prisma.workspaceMembership.upsert({
-            where: {
-              userId_companyId: { userId: admin.id, companyId: company.id },
-            },
-            create: { userId: admin.id, companyId: company.id, role: 'ADMIN' },
-            update: { role: 'ADMIN' },
+          admin = await this.prisma.user.update({
+            where: { id: admin.id },
+            data: { email: SYSTEM_ADMIN_EMAIL },
           });
         }
+      }
+      if (admin) {
+        await this.prisma.user.update({
+          where: { id: admin.id },
+          data: { role: 'ADMIN', companyId: company.id },
+        });
+        await this.prisma.workspaceMembership.deleteMany({
+          where: { userId: admin.id, companyId: { not: company.id } },
+        });
+        await this.prisma.workspaceMembership.upsert({
+          where: {
+            userId_companyId: { userId: admin.id, companyId: company.id },
+          },
+          create: { userId: admin.id, companyId: company.id, role: 'ADMIN' },
+          update: { role: 'ADMIN' },
+        });
+        await this.prisma.session.updateMany({
+          where: { userId: admin.id },
+          data: { activeCompanyId: company.id },
+        });
       }
       return;
     }
 
-    const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const email = SYSTEM_ADMIN_EMAIL;
     const password = process.env.ADMIN_PASSWORD;
     if (!email || !password || password.length < 8) {
       throw new Error(
-        'ADMIN_EMAIL and ADMIN_PASSWORD (at least 8 characters) are required to create the first administrator',
+        'ADMIN_PASSWORD (at least 8 characters) is required to create the first administrator',
       );
     }
 
@@ -187,19 +205,16 @@ export class AuthService implements OnModuleInit {
     });
   }
 
-  async login(email: string, password: string, clientKey: string) {
-    this.assertWithinRateLimit(clientKey);
+  async login(email: string, password: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
 
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      this.recordFailedLogin(clientKey);
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    failedLogins.delete(clientKey);
     const token = randomBytes(32).toString('base64url');
     const membership = await this.prisma.workspaceMembership.findFirst({
       where: { userId: user.id },
@@ -289,6 +304,11 @@ export class AuthService implements OnModuleInit {
       : null;
     if (!company) throw new Error('Company not found');
     const email = dto.email.trim().toLowerCase();
+    if (isSystemAdmin(email)) {
+      throw new BadRequestException(
+        `${SYSTEM_ADMIN_EMAIL} is reserved for the Default Company administrator`,
+      );
+    }
     const user = await this.prisma.user.create({
       data: {
         email,
@@ -360,8 +380,17 @@ export class AuthService implements OnModuleInit {
   }
 
   async listWorkspaces(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
     const memberships = await this.prisma.workspaceMembership.findMany({
-      where: { userId },
+      where: {
+        userId,
+        ...(user && isSystemAdmin(user.email)
+          ? { company: { name: 'Default Company' } }
+          : {}),
+      },
       include: { company: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -369,6 +398,15 @@ export class AuthService implements OnModuleInit {
   }
 
   async createWorkspace(userId: string, name: string) {
+    const creator = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (creator && isSystemAdmin(creator.email)) {
+      throw new BadRequestException(
+        'The system administrator is restricted to the Default Company workspace',
+      );
+    }
     const workspaceName = name.trim();
     if (!workspaceName)
       throw new HttpException(
@@ -405,6 +443,21 @@ export class AuthService implements OnModuleInit {
   async switchWorkspace(userId: string, token?: string, companyId?: string) {
     if (!token || !companyId)
       throw new UnauthorizedException('Workspace selection failed');
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (user && isSystemAdmin(user.email)) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { name: true },
+      });
+      if (company?.name !== 'Default Company') {
+        throw new UnauthorizedException(
+          'The system administrator can access only the Default Company workspace',
+        );
+      }
+    }
     const membership = await this.prisma.workspaceMembership.findUnique({
       where: { userId_companyId: { userId, companyId } },
       include: { company: true, user: true },
@@ -442,32 +495,5 @@ export class AuthService implements OnModuleInit {
       companyId,
       workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
     };
-  }
-
-  private assertWithinRateLimit(key: string) {
-    const attempt = failedLogins.get(key);
-    if (!attempt) return;
-    if (attempt.resetAt <= Date.now()) {
-      failedLogins.delete(key);
-      return;
-    }
-    if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
-      throw new HttpException(
-        'Too many login attempts. Try again in 15 minutes.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-  }
-
-  private recordFailedLogin(key: string) {
-    const existing = failedLogins.get(key);
-    if (!existing || existing.resetAt <= Date.now()) {
-      failedLogins.set(key, {
-        count: 1,
-        resetAt: Date.now() + LOGIN_WINDOW_MS,
-      });
-      return;
-    }
-    existing.count += 1;
   }
 }

@@ -13,6 +13,14 @@ export class CreateExpenseDto {
   @MinLength(1)
   invoiceNumber!: string;
 
+  @IsOptional()
+  @IsString()
+  vendorName?: string;
+
+  @IsOptional()
+  @IsString()
+  vatGstNumber?: string;
+
   @IsString()
   @MinLength(1)
   category!: string;
@@ -28,10 +36,22 @@ export class CreateExpenseDto {
   @MinLength(1)
   itemDetails!: string;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  quantity?: number;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   amount!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  balanceDue?: number;
 
   @IsOptional()
   @Type(() => Number)

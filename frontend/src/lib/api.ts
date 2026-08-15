@@ -68,6 +68,11 @@ export type AuthResponse = {
   expiresAt?: string;
 };
 
+export type PaginatedResponse<T> = {
+  data: T[];
+  meta: { page: number; pageSize: number; total: number; totalPages: number };
+};
+
 export type Client = {
   id: string;
   firstName: string;
@@ -183,14 +188,18 @@ export type Payment = {
 export type Expense = {
   id: string;
   invoiceNumber: string;
+  vendorName?: string | null;
+  vatGstNumber?: string | null;
   category: string;
   paymentMode: string;
   expenseDate: string;
   itemDetails: string;
+  quantity: number | string;
   amount: number | string;
   gstRate: number | string;
   gstAmount: number | string;
   total: number | string;
+  balanceDue: number | string;
   notes?: string | null;
 };
 

@@ -269,14 +269,18 @@ model Payment {
 model Expense {
   id            String    @id @default(cuid()) @map("_id")
   invoiceNumber String
+  vendorName    String?
+  vatGstNumber  String?
   category      String
   paymentMode   String
   expenseDate   DateTime  @default(now())
   itemDetails   String
+  quantity      Float     @default(1)
   amount        Float
   gstRate       Float     @default(0)
   gstAmount     Float     @default(0)
   total         Float
+  balanceDue    Float     @default(0)
   notes         String?
   companyId     String?
   company       Company?  @relation(fields: [companyId], references: [id])

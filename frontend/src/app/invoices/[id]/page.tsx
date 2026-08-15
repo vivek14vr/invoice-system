@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Download, FileMinus, Plus, Save, Trash2 } from "lucide-react";
-import { api, Client, Invoice } from "@/lib/api";
+import { api, Client, Invoice, PaginatedResponse } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PageLoader } from "@/components/Loader";
 import {
@@ -65,11 +65,11 @@ export default function InvoiceDetailPage() {
   useEffect(() => {
     Promise.all([
       api.get<Invoice>(`/invoices/${params.id}`),
-      api.get<Client[]>("/clients"),
+      api.get<Client[] | PaginatedResponse<Client>>("/clients"),
     ])
       .then(([inv, allClients]) => {
         setInvoice(inv);
-        setClients(allClients);
+        setClients(Array.isArray(allClients) ? allClients : allClients.data);
         setClientId(inv.clientId);
         setInvoiceNumber(inv.invoiceNumber);
         setIssueDate(toDateInput(inv.issueDate));

@@ -4,7 +4,13 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
-import { api, Client, Product, SettingsPayload } from "@/lib/api";
+import {
+  api,
+  Client,
+  PaginatedResponse,
+  Product,
+  SettingsPayload,
+} from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import {
   Card,
@@ -64,12 +70,12 @@ export default function NewQuotationPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<Client[]>("/clients"),
+      api.get<Client[] | PaginatedResponse<Client>>("/clients"),
       api.get<Product[]>("/products"),
       api.get<SettingsPayload>("/settings"),
     ])
       .then(([c, p, s]) => {
-        setClients(c);
+        setClients(Array.isArray(c) ? c : c.data);
         setProducts(p);
         setTaxRates(s.taxRates);
         const quoteGroups = s.invoiceGroups.filter((g) =>

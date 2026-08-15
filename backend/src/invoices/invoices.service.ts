@@ -38,8 +38,63 @@ function stateCode(value?: string | null) {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return '';
   const codes: Record<string, string> = {
+    andhra: '37',
+    'andhra pradesh': '37',
+    arunachal: '12',
+    'arunachal pradesh': '12',
+    assam: '18',
+    bihar: '10',
+    chhattisgarh: '22',
+    goa: '30',
+    gujarat: '24',
+    haryana: '06',
+    'himachal pradesh': '02',
+    jharkhand: '20',
+    karnataka: '29',
+    kerala: '32',
+    'madhya pradesh': '23',
+    maharashtra: '27',
+    manipur: '14',
+    meghalaya: '17',
+    mizoram: '15',
+    nagaland: '13',
+    odisha: '21',
+    orissa: '21',
+    punjab: '03',
+    rajasthan: '08',
+    sikkim: '11',
+    'tamil nadu': '33',
+    telangana: '36',
+    tripura: '16',
+    uttarakhand: '05',
+    'west bengal': '19',
+    delhi: '07',
+    'jammu and kashmir': '01',
+    ladakh: '38',
+    puducherry: '34',
+    chandigarh: '04',
+    'dadra and nagar haveli and daman and diu': '26',
+    lakshadweep: '31',
+    'andaman and nicobar islands': '35',
     up: '09',
     'uttar pradesh': '09',
+    ap: '37',
+    mp: '23',
+    mh: '27',
+    rj: '08',
+    tn: '33',
+    tg: '36',
+    wb: '19',
+    dl: '07',
+    uk: '05',
+    br: '10',
+    gj: '24',
+    ka: '29',
+    kl: '32',
+    pb: '03',
+    hr: '06',
+    cg: '22',
+    jh: '20',
   };
   return codes[normalized] ?? normalized;
 }
@@ -87,20 +142,44 @@ export class InvoicesService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async gstTaxLines(
-    client: { vatGstNumber?: string | null },
+    client: {
+      vatGstNumber?: string | null;
+      state?: string | null;
+      stateCode?: string | null;
+    },
     companyId?: string | null,
   ) {
-    const taxNameSettings = await this.prisma.setting.findMany({
+    const settingsRows = await this.prisma.setting.findMany({
       where: {
         companyId: companyId ?? undefined,
-        key: { in: ['tax_cgst_name', 'tax_sgst_name', 'tax_igst_name'] },
+        key: {
+          in: [
+            'tax_cgst_name',
+            'tax_sgst_name',
+            'tax_igst_name',
+            'company_state',
+            'company_state_code',
+          ],
+        },
       },
     });
     const names = Object.fromEntries(
-      taxNameSettings.map((setting) => [setting.key, setting.value]),
+      settingsRows.map((setting) => [setting.key, setting.value]),
     );
+    const sellerCode =
+      stateCode(names.company_state_code) ||
+      stateCode(names.company_state) ||
+      '09';
+    // State fields are authoritative. GSTIN is only a fallback for legacy
+    // clients that do not have state information saved. Missing state means
+    // same-state by default, as required for a new client/invoice.
     const gstStateCode = client.vatGstNumber?.trim().slice(0, 2);
-    return gstStateCode === '09'
+    const buyerCode =
+      stateCode(client.stateCode) ||
+      stateCode(client.state) ||
+      (/^\d{2}$/.test(gstStateCode ?? '') ? gstStateCode : '') ||
+      sellerCode;
+    return buyerCode === sellerCode
       ? [
           { name: names.tax_cgst_name?.trim() || 'CGST', rate: 9 },
           { name: names.tax_sgst_name?.trim() || 'SGST', rate: 9 },
@@ -153,6 +232,7 @@ export class InvoicesService {
     client: {
       state?: string | null;
       stateCode?: string | null;
+      vatGstNumber?: string | null;
     },
     companyId?: string | null,
   ) {
@@ -169,8 +249,12 @@ export class InvoicesService {
       stateCode(settings.company_state_code) ||
       stateCode(settings.company_state) ||
       '09';
+    const gstStateCode = client.vatGstNumber?.trim().slice(0, 2);
     const buyerCode =
-      stateCode(client.stateCode) || stateCode(client.state) || sellerCode;
+      stateCode(client.stateCode) ||
+      stateCode(client.state) ||
+      (/^\d{2}$/.test(gstStateCode ?? '') ? gstStateCode : '') ||
+      sellerCode;
     return {
       taxType:
         buyerCode === sellerCode
@@ -183,30 +267,53 @@ export class InvoicesService {
     search?: string,
     status?: InvoiceStatus,
     companyId?: string | null,
+    page = 1,
+    pageSize = 10,
+    sortBy:
+      'invoiceNumber' | 'issueDate' | 'dueDate' | 'createdAt' = 'createdAt',
+    sortOrder: 'asc' | 'desc' = 'desc',
+    dateFrom?: string,
+    dateTo?: string,
   ) {
-    const invoices = await this.prisma.invoice.findMany({
-      where: {
-        AND: [
-          companyId ? { companyId } : {},
-          status ? { status } : {},
-          search
-            ? {
-                OR: [
-                  { invoiceNumber: { contains: search } },
-                  { client: { name: { contains: search } } },
-                ],
-              }
-            : {},
-        ],
-      },
-      include: {
-        client: true,
-        items: true,
-        payments: { select: { amount: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    return invoices.map((invoice) => {
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
+    const where = {
+      AND: [
+        companyId ? { companyId } : {},
+        status ? { status } : {},
+        from || to
+          ? {
+              issueDate: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {},
+        search
+          ? {
+              OR: [
+                { invoiceNumber: { contains: search } },
+                { client: { name: { contains: search } } },
+              ],
+            }
+          : {},
+      ],
+    };
+    const [invoices, total] = await this.prisma.$transaction([
+      this.prisma.invoice.findMany({
+        where,
+        include: {
+          client: true,
+          items: true,
+          payments: { select: { amount: true } },
+        },
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.invoice.count({ where }),
+    ]);
+    const data = invoices.map((invoice) => {
       const paidAmount = invoice.payments.reduce(
         (sum, payment) => sum + Number(payment.amount),
         0,
@@ -217,6 +324,15 @@ export class InvoicesService {
         balanceDue: Math.max(0, Number(invoice.total) - paidAmount),
       };
     });
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
   }
 
   async findOne(id: string, companyId?: string | null) {
