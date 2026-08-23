@@ -71,12 +71,12 @@ export default function NewQuotationPage() {
   useEffect(() => {
     Promise.all([
       api.get<Client[] | PaginatedResponse<Client>>("/clients"),
-      api.get<Product[]>("/products"),
+      api.get<Product[] | PaginatedResponse<Product>>("/products"),
       api.get<SettingsPayload>("/settings"),
     ])
       .then(([c, p, s]) => {
         setClients(Array.isArray(c) ? c : c.data);
-        setProducts(p);
+        setProducts(Array.isArray(p) ? p : p.data);
         setTaxRates(s.taxRates);
         const quoteGroups = s.invoiceGroups.filter((g) =>
           g.name.toLowerCase().includes("quot"),

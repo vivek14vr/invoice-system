@@ -55,7 +55,7 @@ export default function LoginPage() {
               alt="Girjasoft"
               width={180}
               height={34}
-              className="h-6 w-auto brightness-0 invert"
+              className="h-6 w-[180px] brightness-0 invert"
             />
             <p className="text-sm text-slate-400">Invoice System</p>
           </div>

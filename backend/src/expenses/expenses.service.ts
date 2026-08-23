@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto, UpdateExpenseDto } from './dto/expense.dto';
+import { GridFsService } from '../files/gridfs.service';
 
 function money(value: number) {
   return Math.round(value * 100) / 100;
@@ -8,13 +13,96 @@ function money(value: number) {
 
 @Injectable()
 export class ExpensesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly files: GridFsService,
+  ) {}
 
-  findAll(companyId?: string | null) {
-    return this.prisma.expense.findMany({
-      where: companyId ? { companyId } : {},
-      orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }],
-    });
+  async findAll(
+    companyId?: string | null,
+    search?: string,
+    category?: string,
+    paymentMode?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    page = 1,
+    pageSize = 10,
+    sortBy:
+      | 'expenseDate'
+      | 'amount'
+      | 'total'
+      | 'balanceDue'
+      | 'vendorName' = 'expenseDate',
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ) {
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
+    const where = {
+      AND: [
+        companyId ? { companyId } : {},
+        category ? { category: { contains: category } } : {},
+        paymentMode ? { paymentMode: { contains: paymentMode } } : {},
+        from || to
+          ? {
+              expenseDate: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {},
+        search
+          ? {
+              OR: [
+                { invoiceNumber: { contains: search } },
+                { vendorName: { contains: search } },
+                { vatGstNumber: { contains: search } },
+                { itemDetails: { contains: search } },
+              ],
+            }
+          : {},
+      ],
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.expense.findMany({
+        where,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          vendorName: true,
+          vatGstNumber: true,
+          category: true,
+          paymentMode: true,
+          expenseDate: true,
+          itemDetails: true,
+          quantity: true,
+          amount: true,
+          gstRate: true,
+          gstAmount: true,
+          total: true,
+          balanceDue: true,
+          notes: true,
+          attachmentName: true,
+          attachmentMimeType: true,
+          attachmentSize: true,
+          companyId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.expense.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
   }
 
   private values(dto: CreateExpenseDto | UpdateExpenseDto) {
@@ -40,9 +128,10 @@ export class ExpensesService {
   }
 
   create(dto: CreateExpenseDto, companyId?: string | null) {
-    return this.prisma.expense.create({
-      data: { ...this.values(dto), companyId: companyId ?? undefined },
-    });
+    if (!dto.attachmentData || !dto.attachmentName) {
+      throw new BadRequestException('Expense PDF upload is required');
+    }
+    return this.saveWithAttachment(dto, companyId);
   }
 
   async update(id: string, dto: UpdateExpenseDto, companyId?: string | null) {
@@ -50,10 +139,59 @@ export class ExpensesService {
     if (!expense || (companyId && expense.companyId !== companyId)) {
       throw new NotFoundException('Expense not found');
     }
-    return this.prisma.expense.update({
-      where: { id },
-      data: this.values(dto),
-    });
+    return this.saveWithAttachment(dto, companyId, id, expense.attachmentId);
+  }
+
+  async attachment(id: string, companyId?: string | null) {
+    const expense = await this.prisma.expense.findUnique({ where: { id } });
+    if (
+      !expense ||
+      (companyId && expense.companyId !== companyId) ||
+      !expense.attachmentId
+    ) {
+      throw new NotFoundException('Expense PDF not found');
+    }
+    return { expense, stream: this.files.openDownload(expense.attachmentId) };
+  }
+
+  private async saveWithAttachment(
+    dto: CreateExpenseDto | UpdateExpenseDto,
+    companyId?: string | null,
+    id?: string,
+    previousAttachmentId?: string | null,
+  ) {
+    const data = this.values(dto);
+    const hasNewAttachment = Boolean(dto.attachmentData && dto.attachmentName);
+    const uploaded = hasNewAttachment
+      ? await this.files.uploadPdf(dto.attachmentData!, dto.attachmentName!)
+      : undefined;
+    const attachmentFields = uploaded
+      ? {
+          attachmentId: uploaded.id,
+          attachmentName: dto.attachmentName,
+          attachmentMimeType: 'application/pdf',
+          attachmentSize: uploaded.size,
+        }
+      : {};
+    const expense = id
+      ? await this.prisma.expense.update({
+          where: { id },
+          data: { ...data, ...attachmentFields },
+        })
+      : await this.prisma.expense.create({
+          data: {
+            ...data,
+            ...attachmentFields,
+            companyId: companyId ?? undefined,
+          },
+        });
+    if (
+      uploaded &&
+      previousAttachmentId &&
+      previousAttachmentId !== uploaded.id
+    )
+      await this.files.delete(previousAttachmentId);
+    return expense;
   }
 
   async remove(id: string, companyId?: string | null) {
@@ -62,6 +200,7 @@ export class ExpensesService {
       throw new NotFoundException('Expense not found');
     }
     await this.prisma.expense.delete({ where: { id } });
+    await this.files.delete(expense.attachmentId);
     return { ok: true };
   }
 }

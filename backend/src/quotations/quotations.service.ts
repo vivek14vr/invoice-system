@@ -49,25 +49,61 @@ export class QuotationsService {
     return { quoteNumber, invoiceGroupId: group?.id ?? null };
   }
 
-  findAll(search?: string, status?: QuoteStatus, companyId?: string | null) {
-    return this.prisma.quotation.findMany({
-      where: {
-        AND: [
-          companyId ? { companyId } : {},
-          status ? { status } : {},
-          search
-            ? {
-                OR: [
-                  { quoteNumber: { contains: search } },
-                  { client: { name: { contains: search } } },
-                ],
-              }
-            : {},
-        ],
+  async findAll(
+    search?: string,
+    status?: QuoteStatus,
+    companyId?: string | null,
+    page = 1,
+    pageSize = 10,
+    sortBy:
+      'quoteNumber' | 'issueDate' | 'validUntil' | 'createdAt' = 'createdAt',
+    sortOrder: 'asc' | 'desc' = 'desc',
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
+    const where = {
+      AND: [
+        companyId ? { companyId } : {},
+        status ? { status } : {},
+        from || to
+          ? {
+              issueDate: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {},
+        search
+          ? {
+              OR: [
+                { quoteNumber: { contains: search } },
+                { client: { name: { contains: search } } },
+              ],
+            }
+          : {},
+      ],
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.quotation.findMany({
+        where,
+        include: { client: true, items: true },
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.quotation.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
-      include: { client: true, items: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
   }
 
   async findOne(id: string, companyId?: string | null) {

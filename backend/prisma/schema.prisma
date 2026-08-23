@@ -282,6 +282,10 @@ model Expense {
   total         Float
   balanceDue    Float     @default(0)
   notes         String?
+  attachmentId  String?
+  attachmentName String?
+  attachmentMimeType String?
+  attachmentSize Int?
   companyId     String?
   company       Company?  @relation(fields: [companyId], references: [id])
   createdAt     DateTime  @default(now())

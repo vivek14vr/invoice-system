@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Download, FileMinus, Plus, Save, Trash2 } from "lucide-react";
-import { api, Client, Invoice, PaginatedResponse } from "@/lib/api";
+import { api, Client, Invoice, PaginatedResponse, SettingsPayload } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PageLoader } from "@/components/Loader";
 import {
@@ -37,8 +37,14 @@ export default function InvoiceDetailPage() {
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
   const [creatingCreditNote, setCreatingCreditNote] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<SettingsPayload["paymentMethods"]>([]);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
   const [clientId, setClientId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [issueDate, setIssueDate] = useState("");
@@ -66,10 +72,14 @@ export default function InvoiceDetailPage() {
     Promise.all([
       api.get<Invoice>(`/invoices/${params.id}`),
       api.get<Client[] | PaginatedResponse<Client>>("/clients"),
+      api.get<SettingsPayload>("/settings"),
     ])
-      .then(([inv, allClients]) => {
+      .then(([inv, allClients, settings]) => {
         setInvoice(inv);
         setClients(Array.isArray(allClients) ? allClients : allClients.data);
+        setPaymentMethods(settings.paymentMethods);
+        const defaultMethod = settings.paymentMethods.find((item) => item.isDefault) ?? settings.paymentMethods[0];
+        if (defaultMethod) setPaymentMethod(defaultMethod.name);
         setClientId(inv.clientId);
         setInvoiceNumber(inv.invoiceNumber);
         setIssueDate(toDateInput(inv.issueDate));
@@ -102,6 +112,45 @@ export default function InvoiceDetailPage() {
       })
       .catch((e: Error) => setError(e.message));
   }, [params.id]);
+
+  function refreshPaymentAmount(nextInvoice: Invoice) {
+    const balance = Number(nextInvoice.balanceDue ?? nextInvoice.total);
+    setPaymentAmount(balance > 0 ? balance.toFixed(2) : "");
+  }
+
+  async function addPayment(event: FormEvent) {
+    event.preventDefault();
+    if (!invoice) return;
+    const value = Number(paymentAmount);
+    const balance = Number(invoice.balanceDue ?? invoice.total);
+    if (!value || value <= 0) {
+      setError("Payment amount must be greater than 0.");
+      return;
+    }
+    if (value > balance + 0.005) {
+      setError(`Payment cannot exceed the balance due of ${formatMoney(balance)}.`);
+      return;
+    }
+    if (!paymentMethod) {
+      setError("Please select a payment method.");
+      return;
+    }
+    setSavingPayment(true);
+    setError("");
+    setMessage("");
+    try {
+      await api.post("/payments", { invoiceId: invoice.id, amount: value, method: paymentMethod, paidAt: paymentDate, notes: paymentNotes.trim() || undefined });
+      const updated = await api.get<Invoice>(`/invoices/${invoice.id}`);
+      setInvoice(updated);
+      refreshPaymentAmount(updated);
+      setPaymentNotes("");
+      setMessage("Payment added successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add payment");
+    } finally {
+      setSavingPayment(false);
+    }
+  }
 
   function setField(key: keyof typeof meta, value: string) {
     setMeta((prev) => ({ ...prev, [key]: value }));
@@ -265,8 +314,29 @@ export default function InvoiceDetailPage() {
           <p className="mt-2 text-xl font-semibold">
             {formatMoney(invoice.total)}
           </p>
+          <div className="mt-2 space-y-1 text-xs text-slate-500">
+            <p>Paid: <strong className="text-emerald-600">{formatMoney(invoice.paidAmount ?? 0)}</strong></p>
+            <p>Balance due: <strong className="text-rose-600">{formatMoney(invoice.balanceDue ?? invoice.total)}</strong></p>
+          </div>
         </Card>
       </div>
+
+      <Card className="mb-6 p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Payments</h2>
+          <span className="text-sm text-slate-500">Balance due: {formatMoney(invoice.balanceDue ?? invoice.total)}</span>
+        </div>
+        <form onSubmit={addPayment} className="mb-5 grid gap-3 md:grid-cols-4">
+          <Field label="Amount *"><input className={inputClass} type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} disabled={Number(invoice.balanceDue ?? invoice.total) <= 0} required /></Field>
+          <Field label="Payment Date *"><input className={inputClass} type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} required /></Field>
+          <Field label="Payment Mode *"><select className={inputClass} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} required><option value="">Select mode</option>{paymentMethods.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></Field>
+          <Field label="Notes"><input className={inputClass} value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} /></Field>
+          <div className="md:col-span-4"><PrimaryButton type="submit" disabled={savingPayment || Number(invoice.balanceDue ?? invoice.total) <= 0}>{savingPayment ? "Saving..." : "Add Payment"}</PrimaryButton></div>
+        </form>
+        {invoice.payments?.length ? (
+          <div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-xs uppercase text-slate-400"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Method</th><th className="px-3 py-2">Notes</th><th className="px-3 py-2 text-right">Amount</th></tr></thead><tbody className="divide-y divide-slate-100">{invoice.payments.map((payment) => <tr key={payment.id}><td className="px-3 py-2">{formatDate(payment.paidAt)}</td><td className="px-3 py-2">{payment.method}</td><td className="px-3 py-2 text-slate-500">{payment.notes || "—"}</td><td className="px-3 py-2 text-right font-medium">{formatMoney(payment.amount)}</td></tr>)}</tbody></table></div>
+        ) : <p className="text-sm text-slate-500">No payments recorded for this invoice.</p>}
+      </Card>
 
       <Card className="mb-6 p-5">
         <div className="mb-3 flex items-center justify-between gap-3">

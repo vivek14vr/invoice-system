@@ -1,30 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CreditCard, Plus, Trash2 } from "lucide-react";
-import { api, Payment } from "@/lib/api";
+import { api, PaginatedResponse, Payment } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 import { formatDate, formatMoney } from "@/lib/format";
 import {
   Card,
   EmptyState,
   PageHeader,
   PrimaryButton,
+  SearchInput,
 } from "@/components/ui";
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [search, setSearch] = useState("");
+  const [method, setMethod] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<"paidAt" | "amount" | "method">("paidAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState("");
 
-  const load = () =>
-    api
-      .get<Payment[]>("/payments")
-      .then(setPayments)
-      .catch((e: Error) => setError(e.message));
+  const load = useCallback(() => {
+    const params = new URLSearchParams({ page: String(page), pageSize: "10", sortBy, sortOrder });
+    if (search) params.set("search", search);
+    if (method) params.set("method", method);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    return api.get<PaginatedResponse<Payment>>(`/payments?${params}`).then((response) => {
+      setPayments(response.data); setTotal(response.meta.total); setTotalPages(response.meta.totalPages);
+    }).catch((e: Error) => setError(e.message));
+  }, [search, method, dateFrom, dateTo, sortBy, sortOrder, page]);
 
   useEffect(() => {
-    load();
-  }, []);
+    const timer = setTimeout(load, 200);
+    return () => clearTimeout(timer);
+  }, [load]);
 
   async function remove(id: string) {
     if (!confirm("Delete payment?")) return;
@@ -55,6 +72,15 @@ export default function PaymentsPage() {
       {error ? (
         <Card className="mb-4 p-3 text-sm text-rose-600">{error}</Card>
       ) : null}
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="min-w-[240px] flex-1"><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Search invoice, client or method..." /></div>
+        <input className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Filter method" value={method} onChange={(e) => { setMethod(e.target.value); setPage(1); }} />
+        <label className="text-sm text-slate-600">From <input type="date" className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} /></label>
+        <label className="text-sm text-slate-600">To <input type="date" className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} /></label>
+        <select aria-label="Sort payments by" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortBy} onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setPage(1); }}><option value="paidAt">Sort by date</option><option value="amount">Amount</option><option value="method">Payment method</option></select>
+        <select aria-label="Payment sort order" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value as typeof sortOrder); setPage(1); }}><option value="desc">Descending</option><option value="asc">Ascending</option></select>
+      </div>
 
       <Card>
         <div className="overflow-x-auto">
@@ -115,6 +141,7 @@ export default function PaymentsPage() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
       </Card>
     </div>
   );

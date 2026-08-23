@@ -127,12 +127,12 @@ export default function NewInvoicePage() {
   useEffect(() => {
     Promise.all([
       api.get<Client[] | PaginatedResponse<Client>>("/clients"),
-      api.get<Product[]>("/products"),
+      api.get<Product[] | PaginatedResponse<Product>>("/products"),
       api.get<SettingsPayload>("/settings"),
     ])
       .then(([c, p, s]) => {
         setClients(Array.isArray(c) ? c : c.data);
-        setProducts(p);
+        setProducts(Array.isArray(p) ? p : p.data);
         setInvoiceGroups(s.invoiceGroups);
         setSellerState(
           normalizeState(s.settings.company_state_code) ||

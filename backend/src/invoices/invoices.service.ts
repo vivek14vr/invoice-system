@@ -342,7 +342,15 @@ export class InvoicesService {
     });
     if (!invoice || (companyId && invoice.companyId !== companyId))
       throw new NotFoundException('Invoice not found');
-    return invoice;
+    const paidAmount = invoice.payments.reduce(
+      (sum, payment) => sum + Number(payment.amount),
+      0,
+    );
+    return {
+      ...invoice,
+      paidAmount,
+      balanceDue: Math.max(0, Number(invoice.total) - paidAmount),
+    };
   }
 
   async create(dto: CreateInvoiceDto, companyId?: string | null) {

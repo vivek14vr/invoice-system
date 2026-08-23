@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, ReceiptIndianRupee, Trash2 } from "lucide-react";
-import { api, Expense } from "@/lib/api";
+import { api, Expense, PaginatedResponse } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 import { formatDate, formatMoney } from "@/lib/format";
 import {
   Card,
@@ -11,6 +12,7 @@ import {
   PageHeader,
   PrimaryButton,
   inputClass,
+  SearchInput,
 } from "@/components/ui";
 
 function today() {
@@ -34,21 +36,40 @@ const initialForm = () => ({
 
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [paymentMode, setPaymentMode] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<"expenseDate" | "amount" | "total" | "balanceDue" | "vendorName">("expenseDate");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [form, setForm] = useState(initialForm);
   const [withGst, setWithGst] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachmentInputKey, setAttachmentInputKey] = useState(0);
 
-  const load = () =>
-    api
-      .get<Expense[]>("/expenses")
-      .then(setExpenses)
-      .catch((err: Error) => setError(err.message));
+  const load = useCallback(() => {
+    const params = new URLSearchParams({ page: String(page), pageSize: "10", sortBy, sortOrder });
+    if (search) params.set("search", search);
+    if (category) params.set("category", category);
+    if (paymentMode) params.set("paymentMode", paymentMode);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    return api.get<PaginatedResponse<Expense>>(`/expenses?${params}`).then((response) => {
+      setExpenses(response.data); setTotal(response.meta.total); setTotalPages(response.meta.totalPages);
+    }).catch((err: Error) => setError(err.message));
+  }, [search, category, paymentMode, dateFrom, dateTo, sortBy, sortOrder, page]);
 
   useEffect(() => {
-    load();
-  }, []);
+    const timer = setTimeout(load, 200);
+    return () => clearTimeout(timer);
+  }, [load]);
 
   const totals = useMemo(() => {
     const amount = Number(form.amount) || 0;
@@ -66,7 +87,28 @@ export default function ExpensesPage() {
     setSaving(true);
     setError("");
     setMessage("");
+    if (!attachment) {
+      setError("Expense PDF upload is required.");
+      setSaving(false);
+      return;
+    }
+    if (attachment.type !== "application/pdf") {
+      setError("Only PDF files are allowed.");
+      setSaving(false);
+      return;
+    }
+    if (attachment.size > 5 * 1024 * 1024) {
+      setError("PDF must be 5 MB or smaller.");
+      setSaving(false);
+      return;
+    }
     try {
+      const attachmentData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read PDF"));
+        reader.readAsDataURL(attachment);
+      });
       const created = await api.post<Expense>("/expenses", {
         invoiceNumber: form.invoiceNumber.trim(),
         vendorName: form.vendorName.trim() || undefined,
@@ -79,11 +121,15 @@ export default function ExpensesPage() {
         amount: totals.amount,
         gstRate: totals.gstRate,
         balanceDue: Number(form.balanceDue) || 0,
+        attachmentData,
+        attachmentName: attachment.name,
         notes: form.notes.trim() || undefined,
       });
       setExpenses((current) => [created, ...current]);
       setForm(initialForm());
       setWithGst(false);
+      setAttachment(null);
+      setAttachmentInputKey((key) => key + 1);
       setMessage("Expense saved successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save expense");
@@ -112,6 +158,16 @@ export default function ExpensesPage() {
 
       {error ? <Card className="mb-4 p-3 text-sm text-rose-600">{error}</Card> : null}
       {message ? <Card className="mb-4 p-3 text-sm text-emerald-600">{message}</Card> : null}
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="min-w-[240px] flex-1"><SearchInput value={search} onChange={(value) => { setSearch(value); setPage(1); }} placeholder="Search invoice, vendor or item..." /></div>
+        <input className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Filter category" value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} />
+        <input className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Filter payment mode" value={paymentMode} onChange={(e) => { setPaymentMode(e.target.value); setPage(1); }} />
+        <label className="text-sm text-slate-600">From <input type="date" className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} /></label>
+        <label className="text-sm text-slate-600">To <input type="date" className="ml-1 rounded-lg border border-slate-200 px-2 py-1.5" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} /></label>
+        <select aria-label="Sort expenses by" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortBy} onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setPage(1); }}><option value="expenseDate">Sort by date</option><option value="amount">Amount before GST</option><option value="total">Total</option><option value="balanceDue">Balance due</option><option value="vendorName">Vendor</option></select>
+        <select aria-label="Expense sort order" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value as typeof sortOrder); setPage(1); }}><option value="desc">Descending</option><option value="asc">Ascending</option></select>
+      </div>
 
       <Card className="mb-6 p-5">
         <div className="mb-4">
@@ -168,6 +224,10 @@ export default function ExpensesPage() {
           <Field label="Notes / Remarks">
             <textarea className={inputClass} rows={2} value={form.notes} onChange={(event) => update("notes", event.target.value)} />
           </Field>
+          <Field label="Expense Invoice PDF *">
+            <input key={attachmentInputKey} type="file" accept="application/pdf,.pdf" className={inputClass} onChange={(event) => setAttachment(event.target.files?.[0] ?? null)} required />
+            <p className="mt-1 text-xs text-slate-500">PDF only, maximum 5 MB.</p>
+          </Field>
 
           <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-4">
             <div className="text-sm text-slate-600">
@@ -204,7 +264,7 @@ export default function ExpensesPage() {
                     <td className="px-4 py-3 text-slate-600">{expense.category}</td>
                     <td className="px-4 py-3 text-slate-600">{expense.paymentMode}</td>
                     <td className="px-4 py-3 text-slate-600">{expense.quantity ?? 1}</td>
-                    <td className="max-w-xs px-4 py-3 text-slate-600"><p className="truncate" title={expense.itemDetails}>{expense.itemDetails}</p>{expense.notes ? <p className="mt-1 truncate text-xs text-slate-400" title={expense.notes}>Note: {expense.notes}</p> : null}</td>
+                    <td className="max-w-xs px-4 py-3 text-slate-600"><p className="truncate" title={expense.itemDetails}>{expense.itemDetails}</p>{expense.notes ? <p className="mt-1 truncate text-xs text-slate-400" title={expense.notes}>Note: {expense.notes}</p> : null}{expense.attachmentName ? <a className="mt-1 block text-xs text-blue-600 hover:underline" href={api.expenseAttachmentUrl(expense.id)} target="_blank" rel="noreferrer">View PDF</a> : null}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">{Number(expense.gstRate) ? `${Number(expense.gstRate)}% · ${formatMoney(expense.gstAmount)}` : "No GST"}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">{formatMoney(expense.balanceDue ?? 0)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">{formatMoney(expense.total)}</td>
@@ -215,6 +275,7 @@ export default function ExpensesPage() {
             </table>
           </div>
         )}
+        <Pagination page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
       </Card>
     </div>
   );

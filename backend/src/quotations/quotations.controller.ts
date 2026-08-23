@@ -23,12 +23,29 @@ export class QuotationsController {
   findAll(
     @Query('search') search?: string,
     @Query('status') status?: QuoteStatus,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy')
+    sortBy?: 'quoteNumber' | 'issueDate' | 'validUntil' | 'createdAt',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
     @Req() request?: AuthenticatedRequest,
   ) {
     return this.quotationsService.findAll(
       search,
       status,
       request?.user.companyId,
+      Math.max(1, Number(page) || 1),
+      Math.min(100, Math.max(1, Number(pageSize) || 10)),
+      ['quoteNumber', 'issueDate', 'validUntil', 'createdAt'].includes(
+        sortBy ?? '',
+      )
+        ? sortBy
+        : 'createdAt',
+      sortOrder === 'asc' ? 'asc' : 'desc',
+      dateFrom,
+      dateTo,
     );
   }
 

@@ -22,8 +22,21 @@ export class ProductsController {
   findAll(
     @Req() request: AuthenticatedRequest,
     @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: 'name' | 'price' | 'purchasePrice' | 'createdAt',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
   ) {
-    return this.productsService.findAll(search, request.user.companyId);
+    return this.productsService.findAll(
+      search,
+      request.user.companyId,
+      Math.max(1, Number(page) || 1),
+      Math.min(100, Math.max(1, Number(pageSize) || 10)),
+      ['name', 'price', 'purchasePrice', 'createdAt'].includes(sortBy ?? '')
+        ? sortBy
+        : 'createdAt',
+      sortOrder === 'asc' ? 'asc' : 'desc',
+    );
   }
 
   @Get(':id')

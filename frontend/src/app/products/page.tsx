@@ -2,7 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Box, Pencil, Plus, Save, Trash2, X } from "lucide-react";
-import { api, Product } from "@/lib/api";
+import { api, PaginatedResponse, Product } from "@/lib/api";
+import { Pagination } from "@/components/Pagination";
 import { formatMoney } from "@/lib/format";
 import {
   Card,
@@ -25,6 +26,11 @@ const emptyForm = {
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"createdAt" | "name" | "price" | "purchasePrice">("createdAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -34,12 +40,10 @@ export default function ProductsPage() {
   const load = useCallback(
     () =>
       api
-        .get<Product[]>(
-          `/products${search ? `?search=${encodeURIComponent(search)}` : ""}`,
-        )
-        .then(setProducts)
+        .get<PaginatedResponse<Product>>(`/products?${new URLSearchParams({ page: String(page), pageSize: "10", sortBy, sortOrder, ...(search ? { search } : {}) })}`)
+        .then((response) => { setProducts(response.data); setTotal(response.meta.total); setTotalPages(response.meta.totalPages); })
         .catch((e: Error) => setError(e.message)),
-    [search],
+    [search, page, sortBy, sortOrder],
   );
 
   useEffect(() => {
@@ -199,9 +203,14 @@ export default function ProductsPage() {
       <div className="mb-4">
         <SearchInput
           value={search}
-          onChange={setSearch}
+            onChange={(value) => { setSearch(value); setPage(1); }}
           placeholder="Search products..."
         />
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-3">
+        <select aria-label="Sort products by" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortBy} onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setPage(1); }}><option value="createdAt">Sort by newest</option><option value="name">Product name</option><option value="price">Selling price</option><option value="purchasePrice">Purchase price</option></select>
+        <select aria-label="Product sort order" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={sortOrder} onChange={(e) => { setSortOrder(e.target.value as typeof sortOrder); setPage(1); }}><option value="desc">Descending</option><option value="asc">Ascending</option></select>
       </div>
 
       <Card>
@@ -271,6 +280,7 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
       </Card>
     </div>
   );

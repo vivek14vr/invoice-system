@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileText } from "lucide-react";
-import { api, Invoice, SettingsPayload } from "@/lib/api";
+import { api, Invoice, PaginatedResponse, SettingsPayload } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/format";
 import {
   Card,
@@ -31,12 +31,12 @@ export default function RecordPaymentPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<Invoice[]>("/invoices"),
+      api.get<PaginatedResponse<Invoice>>("/invoices?page=1&pageSize=100"),
       api.get<SettingsPayload>("/settings"),
     ])
       .then(([inv, settings]) => {
         setInvoices(
-          inv.filter(
+          inv.data.filter(
             (invoice) =>
               invoice.status !== "CANCELLED" &&
               Number(invoice.balanceDue ?? invoice.total) > 0,

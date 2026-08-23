@@ -11,12 +11,61 @@ import { CreatePaymentDto } from './dto/payment.dto';
 export class PaymentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(companyId?: string | null) {
-    return this.prisma.payment.findMany({
-      where: companyId ? { companyId } : {},
-      include: { invoice: true, client: true },
-      orderBy: { paidAt: 'desc' },
-    });
+  async findAll(
+    companyId?: string | null,
+    search?: string,
+    method?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    page = 1,
+    pageSize = 10,
+    sortBy: 'paidAt' | 'amount' | 'method' = 'paidAt',
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ) {
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
+    const where = {
+      AND: [
+        companyId ? { companyId } : {},
+        method ? { method: { contains: method } } : {},
+        from || to
+          ? {
+              paidAt: {
+                ...(from ? { gte: from } : {}),
+                ...(to ? { lte: to } : {}),
+              },
+            }
+          : {},
+        search
+          ? {
+              OR: [
+                { method: { contains: search } },
+                { invoice: { invoiceNumber: { contains: search } } },
+                { client: { name: { contains: search } } },
+              ],
+            }
+          : {},
+      ],
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.payment.findMany({
+        where,
+        include: { invoice: true, client: true },
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
   }
 
   async create(dto: CreatePaymentDto, companyId?: string | null) {

@@ -17,6 +17,7 @@ import {
   Users,
   ChevronDown,
   Plus,
+  BarChart3,
 } from "lucide-react";
 
 const nav = [
@@ -26,6 +27,7 @@ const nav = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/expenses", label: "Expenses", icon: ReceiptIndianRupee },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/products", label: "Products", icon: Box },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/users", label: "Users & Companies", icon: Users },
@@ -70,7 +72,7 @@ export function Sidebar({
             alt="Girjasoft"
             width={110}
             height={20}
-            className="h-5 w-auto object-contain object-left"
+            className="h-5 w-[110px] object-contain object-left"
           />
           <p className="text-xs text-slate-500">Invoice System</p>
         </div>

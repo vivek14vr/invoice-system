@@ -10,21 +10,40 @@ import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(search?: string, companyId?: string | null) {
-    return this.prisma.product.findMany({
-      where: {
-        ...(companyId ? { companyId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search } },
-                { sku: { contains: search } },
-              ],
-            }
-          : {}),
+  async findAll(
+    search?: string,
+    companyId?: string | null,
+    page = 1,
+    pageSize = 10,
+    sortBy: 'name' | 'price' | 'purchasePrice' | 'createdAt' = 'createdAt',
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ) {
+    const where = {
+      ...(companyId ? { companyId } : {}),
+      ...(search
+        ? {
+            OR: [{ name: { contains: search } }, { sku: { contains: search } }],
+          }
+        : {}),
+    };
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.product.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
   }
 
   async findOne(id: string, companyId?: string | null) {

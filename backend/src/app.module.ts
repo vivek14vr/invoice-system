@@ -10,6 +10,7 @@ import { QuotationsModule } from './quotations/quotations.module';
 import { SettingsModule } from './settings/settings.module';
 import { AuthModule } from './auth/auth.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ExpensesModule } from './expenses/expenses.module';
     ProductsModule,
     PaymentsModule,
     ExpensesModule,
+    ReportsModule,
     SettingsModule,
   ],
 })

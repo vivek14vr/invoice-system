@@ -62,6 +62,14 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentData?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentName?: string;
 }
 
 export class UpdateExpenseDto extends CreateExpenseDto {}

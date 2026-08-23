@@ -48,6 +48,14 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   pdfUrl: (invoiceId: string) => `${API_URL}/invoices/${invoiceId}/pdf`,
+  expenseAttachmentUrl: (expenseId: string) => `${API_URL}/expenses/${expenseId}/attachment`,
+  reportsExportUrl: (query: string) => `${API_URL}/reports/export?${query}`,
+};
+
+export type ReportResponse = {
+  filters: { type: string; dateFrom?: string; dateTo?: string };
+  summary: Record<string, number>;
+  rows: { type: string; date: string; number: string; party: string; amount: number; status: string; balanceDue: number | string }[];
 };
 
 export type AuthUser = {
@@ -112,6 +120,7 @@ export type Invoice = {
   total: number | string;
   paidAmount?: number | string;
   balanceDue?: number | string;
+  payments?: Payment[];
   notes?: string | null;
   terms?: string | null;
   deliveryNote?: string | null;
@@ -181,6 +190,7 @@ export type Payment = {
   method: string;
   amount: number | string;
   paidAt: string;
+  notes?: string | null;
   invoice?: Invoice;
   client?: Client;
 };
@@ -201,6 +211,7 @@ export type Expense = {
   total: number | string;
   balanceDue: number | string;
   notes?: string | null;
+  attachmentName?: string | null;
 };
 
 export type DashboardData = {
