@@ -15,6 +15,7 @@ import {
 } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { SESSION_DURATION_MS } from './auth.constants';
+import { GridFsService } from '../files/gridfs.service';
 
 type SafeUser = {
   id: string;
@@ -63,7 +64,10 @@ async function verifyPassword(password: string, stored: string) {
 
 @Injectable()
 export class AuthService implements OnModuleInit {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly files: GridFsService,
+  ) {}
 
   async onModuleInit() {
     const userCount = await this.prisma.user.count();
@@ -430,6 +434,84 @@ export class AuthService implements OnModuleInit {
       ],
     });
     return { ...company, role: 'ADMIN' as const };
+  }
+
+  async deleteWorkspace(companyId: string, requesterId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+    if (!company) throw new NotFoundException('Workspace not found');
+    if (company.name === 'Default Company') {
+      throw new BadRequestException('Default Company cannot be deleted');
+    }
+
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requesterId },
+      select: { email: true },
+    });
+    const membership = await this.prisma.workspaceMembership.findUnique({
+      where: { userId_companyId: { userId: requesterId, companyId } },
+    });
+    if (
+      !isSystemAdmin(requester?.email ?? '') &&
+      membership?.role !== 'ADMIN'
+    ) {
+      throw new UnauthorizedException('You do not administer this workspace');
+    }
+
+    const expenses = await this.prisma.expense.findMany({
+      where: { companyId },
+      select: { attachmentId: true },
+    });
+    const memberships = await this.prisma.workspaceMembership.findMany({
+      where: { companyId },
+      select: { userId: true },
+    });
+    const userIds = [...new Set(memberships.map((item) => item.userId))];
+
+    for (const expense of expenses) {
+      await this.files.delete(expense.attachmentId);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.updateMany({
+        where: { activeCompanyId: companyId },
+        data: { activeCompanyId: null },
+      });
+      await tx.workspaceMembership.deleteMany({ where: { companyId } });
+      await tx.payment.deleteMany({ where: { companyId } });
+      await tx.invoice.deleteMany({ where: { companyId } });
+      await tx.quotation.deleteMany({ where: { companyId } });
+      await tx.expense.deleteMany({ where: { companyId } });
+      await tx.client.deleteMany({ where: { companyId } });
+      await tx.product.deleteMany({ where: { companyId } });
+      await tx.taxRate.deleteMany({ where: { companyId } });
+      await tx.paymentMethod.deleteMany({ where: { companyId } });
+      await tx.invoiceGroup.deleteMany({ where: { companyId } });
+      await tx.setting.deleteMany({ where: { companyId } });
+
+      for (const userId of userIds) {
+        const remaining = await tx.workspaceMembership.findFirst({
+          where: { userId },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (remaining) {
+          await tx.user.update({
+            where: { id: userId },
+            data: { companyId: remaining.companyId },
+          });
+          await tx.session.updateMany({
+            where: { userId, activeCompanyId: null },
+            data: { activeCompanyId: remaining.companyId },
+          });
+        } else {
+          await tx.user.delete({ where: { id: userId } });
+        }
+      }
+      await tx.company.delete({ where: { id: companyId } });
+    });
+
+    return { ok: true, deletedWorkspaceId: companyId };
   }
 
   async switchWorkspace(userId: string, token?: string, companyId?: string) {

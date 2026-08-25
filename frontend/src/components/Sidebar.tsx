@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Plus,
   BarChart3,
+  Trash2,
 } from "lucide-react";
 
 const nav = [
@@ -39,12 +40,14 @@ export function Sidebar({
   onLogout,
   onSwitchWorkspace,
   onCreateWorkspace,
+  onDeleteWorkspace,
 }: {
   user: AuthUser;
   workspaces: Workspace[];
   onLogout: () => void;
   onSwitchWorkspace: (companyId: string) => Promise<void>;
   onCreateWorkspace: (name: string) => Promise<void>;
+  onDeleteWorkspace: (companyId: string) => Promise<void>;
 }) {
   const pathname = usePathname();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -97,17 +100,37 @@ export function Sidebar({
         {workspaceOpen && (
           <div className="absolute left-3 right-3 z-20 mt-1 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
             {workspaces.map((workspace) => (
-              <button
-                key={workspace.id}
-                type="button"
-                onClick={async () => {
-                  await onSwitchWorkspace(workspace.id);
-                  setWorkspaceOpen(false);
-                }}
-                className={`block w-full rounded-md px-3 py-2 text-left text-sm ${workspace.id === user.companyId ? "bg-blue-50 font-medium text-blue-700" : "hover:bg-slate-50"}`}
-              >
-                {workspace.name}
-              </button>
+              <div key={workspace.id} className="flex items-center gap-1 rounded-md">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onSwitchWorkspace(workspace.id);
+                    setWorkspaceOpen(false);
+                  }}
+                  className={`min-w-0 flex-1 rounded-md px-3 py-2 text-left text-sm ${workspace.id === user.companyId ? "bg-blue-50 font-medium text-blue-700" : "hover:bg-slate-50"}`}
+                >
+                  <span className="block truncate">{workspace.name}</span>
+                </button>
+                {workspace.name !== "Default Company" ? (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${workspace.name}`}
+                    title={`Delete ${workspace.name}`}
+                    onClick={async () => {
+                      if (!window.confirm(`Delete workspace \"${workspace.name}\" and all its data? This cannot be undone.`)) return;
+                      try {
+                        await onDeleteWorkspace(workspace.id);
+                        setWorkspaceOpen(false);
+                      } catch (error) {
+                        window.alert(error instanceof Error ? error.message : "Failed to delete workspace");
+                      }
+                    }}
+                    className="rounded-md p-2 text-rose-500 hover:bg-rose-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
             ))}
             {user.role === "ADMIN" ? (
               <button type="button" onClick={createWorkspace} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50">

@@ -92,6 +92,15 @@ export class AuthController {
     return this.authService.createWorkspace(request.user.id, dto.name);
   }
 
+  @Delete('workspaces/:id')
+  @AdminOnly()
+  deleteWorkspace(
+    @Param('id') id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.authService.deleteWorkspace(id, request.user.id);
+  }
+
   @Post('switch-workspace')
   async switchWorkspace(
     @Body() dto: { companyId: string },

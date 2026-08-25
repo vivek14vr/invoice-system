@@ -73,6 +73,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     await switchWorkspace(workspace.id);
   }
 
+  async function deleteWorkspace(companyId: string) {
+    await api.delete(`/auth/workspaces/${companyId}`);
+    const available = await api.get<Workspace[]>('/auth/workspaces');
+    setWorkspaces(available);
+    if (user?.companyId === companyId) {
+      const fallback = available[0];
+      if (fallback) await switchWorkspace(fallback.id);
+    }
+  }
+
   if (pathname === "/login") {
     return <LoadingProvider>{children}</LoadingProvider>;
   }
@@ -94,6 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onLogout={logout}
           onSwitchWorkspace={switchWorkspace}
           onCreateWorkspace={createWorkspace}
+          onDeleteWorkspace={deleteWorkspace}
         />
         <main className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
