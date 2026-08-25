@@ -52,8 +52,12 @@ export function Sidebar({
   async function createWorkspace() {
     const name = window.prompt("New workspace name");
     if (!name?.trim()) return;
-    await onCreateWorkspace(name.trim());
-    setWorkspaceOpen(false);
+    try {
+      await onCreateWorkspace(name.trim());
+      setWorkspaceOpen(false);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to create workspace");
+    }
   }
 
   return (

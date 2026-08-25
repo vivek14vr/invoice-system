@@ -309,42 +309,52 @@ export class AuthService implements OnModuleInit {
         `${SYSTEM_ADMIN_EMAIL} is reserved for the Default Company administrator`,
       );
     }
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        name: dto.name.trim(),
-        passwordHash: await hashPassword(dto.password),
-        role: dto.role ?? 'READ_ONLY',
-        companyId: company.id,
-      },
-    });
-    await this.prisma.workspaceMembership.create({
-      data: {
-        userId: user.id,
-        companyId: company.id,
-        role: dto.role ?? 'READ_ONLY',
-      },
+    const role = dto.role ?? 'READ_ONLY';
+    const passwordHash = await hashPassword(dto.password);
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          name: dto.name.trim(),
+          passwordHash,
+          role,
+          companyId: company.id,
+        },
+      });
+      await tx.workspaceMembership.create({
+        data: { userId: created.id, companyId: company.id, role },
+      });
+      return created;
     });
     return this.safeUser(user, company.id, dto.role ?? 'READ_ONLY', company);
   }
 
   async listUsers(companyId?: string | null) {
     if (!companyId) return [];
-    return (
-      await this.prisma.workspaceMembership.findMany({
-        where: { companyId },
-        orderBy: { createdAt: 'desc' },
-        include: { user: true, company: true },
-      })
-    ).map((membership) => ({
-      ...this.safeUser(
-        membership.user,
-        membership.companyId,
-        membership.role,
-        membership.company,
-      ),
-      company: membership.company,
-    }));
+    const memberships = await this.prisma.workspaceMembership.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      include: { company: true },
+    });
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: memberships.map((membership) => membership.userId) } },
+    });
+    const usersById = new Map(users.map((user) => [user.id, user]));
+    return memberships.flatMap((membership) => {
+      const user = usersById.get(membership.userId);
+      if (!user) return [];
+      return [
+        {
+          ...this.safeUser(
+            user,
+            membership.companyId,
+            membership.role,
+            membership.company,
+          ),
+          company: membership.company,
+        },
+      ];
+    });
   }
 
   async removeUser(id: string, requesterId: string, companyId?: string | null) {
@@ -380,17 +390,8 @@ export class AuthService implements OnModuleInit {
   }
 
   async listWorkspaces(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
     const memberships = await this.prisma.workspaceMembership.findMany({
-      where: {
-        userId,
-        ...(user && isSystemAdmin(user.email)
-          ? { company: { name: 'Default Company' } }
-          : {}),
-      },
+      where: { userId },
       include: { company: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -398,15 +399,6 @@ export class AuthService implements OnModuleInit {
   }
 
   async createWorkspace(userId: string, name: string) {
-    const creator = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-    if (creator && isSystemAdmin(creator.email)) {
-      throw new BadRequestException(
-        'The system administrator is restricted to the Default Company workspace',
-      );
-    }
     const workspaceName = name.trim();
     if (!workspaceName)
       throw new HttpException(
@@ -443,21 +435,6 @@ export class AuthService implements OnModuleInit {
   async switchWorkspace(userId: string, token?: string, companyId?: string) {
     if (!token || !companyId)
       throw new UnauthorizedException('Workspace selection failed');
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-    if (user && isSystemAdmin(user.email)) {
-      const company = await this.prisma.company.findUnique({
-        where: { id: companyId },
-        select: { name: true },
-      });
-      if (company?.name !== 'Default Company') {
-        throw new UnauthorizedException(
-          'The system administrator can access only the Default Company workspace',
-        );
-      }
-    }
     const membership = await this.prisma.workspaceMembership.findUnique({
       where: { userId_companyId: { userId, companyId } },
       include: { company: true, user: true },
