@@ -346,7 +346,7 @@ export class AuthService implements OnModuleInit {
     const usersById = new Map(users.map((user) => [user.id, user]));
     return memberships.flatMap((membership) => {
       const user = usersById.get(membership.userId);
-      if (!user) return [];
+      if (!user || isSystemAdmin(user.email)) return [];
       return [
         {
           ...this.safeUser(
@@ -365,6 +365,15 @@ export class AuthService implements OnModuleInit {
     if (!companyId) throw new NotFoundException('Workspace not found');
     if (id === requesterId) {
       throw new BadRequestException('You cannot delete your own user account');
+    }
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id },
+      select: { email: true },
+    });
+    if (isSystemAdmin(targetUser?.email ?? '')) {
+      throw new BadRequestException(
+        `${SYSTEM_ADMIN_EMAIL} cannot be removed from the system`,
+      );
     }
     const membership = await this.prisma.workspaceMembership.findUnique({
       where: { userId_companyId: { userId: id, companyId } },
@@ -402,7 +411,31 @@ export class AuthService implements OnModuleInit {
     return memberships.map(({ company, role }) => ({ ...company, role }));
   }
 
-  async createWorkspace(userId: string, name: string) {
+  async createWorkspace(
+    userId: string,
+    activeCompanyId: string | null | undefined,
+    name: string,
+  ) {
+    const requester = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!isSystemAdmin(requester?.email ?? '')) {
+      throw new UnauthorizedException(
+        'Only the system administrator can create workspaces',
+      );
+    }
+    const activeCompany = activeCompanyId
+      ? await this.prisma.company.findUnique({
+          where: { id: activeCompanyId },
+          select: { name: true },
+        })
+      : null;
+    if (activeCompany?.name !== 'Default Company') {
+      throw new UnauthorizedException(
+        'Workspaces can only be created from Default Company',
+      );
+    }
     const workspaceName = name.trim();
     if (!workspaceName)
       throw new HttpException(
@@ -437,6 +470,15 @@ export class AuthService implements OnModuleInit {
   }
 
   async deleteWorkspace(companyId: string, requesterId: string) {
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requesterId },
+      select: { email: true },
+    });
+    if (!isSystemAdmin(requester?.email ?? '')) {
+      throw new UnauthorizedException(
+        'Only the system administrator can delete workspaces',
+      );
+    }
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
     });
@@ -445,17 +487,10 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException('Default Company cannot be deleted');
     }
 
-    const requester = await this.prisma.user.findUnique({
-      where: { id: requesterId },
-      select: { email: true },
-    });
     const membership = await this.prisma.workspaceMembership.findUnique({
       where: { userId_companyId: { userId: requesterId, companyId } },
     });
-    if (
-      !isSystemAdmin(requester?.email ?? '') &&
-      membership?.role !== 'ADMIN'
-    ) {
+    if (!membership) {
       throw new UnauthorizedException('You do not administer this workspace');
     }
 

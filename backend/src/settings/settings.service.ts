@@ -111,20 +111,26 @@ export class SettingsService implements OnModuleInit {
       });
     }
 
-    const methodCount = await this.prisma.paymentMethod.count({
-      where: { companyId },
-    });
-    if (methodCount === 0) {
-      await this.prisma.paymentMethod.createMany({
-        data: [
-          { name: 'Bank Transfer', isDefault: false, companyId },
-          { name: 'Cash', isDefault: true, companyId },
-          { name: 'Cheque', isDefault: false, companyId },
-          { name: 'Credit Card', isDefault: false, companyId },
-          { name: 'UPI', isDefault: false, companyId },
-        ],
-      });
-    }
+    // Use upserts instead of count-then-create. Multiple pages request
+    // settings at the same time during navigation, and the old pattern let
+    // both requests observe zero methods before either inserted them. The
+    // compound unique key makes these writes safe under that race.
+    const defaultPaymentMethods = [
+      { name: 'Bank Transfer', isDefault: false },
+      { name: 'Cash', isDefault: true },
+      { name: 'Cheque', isDefault: false },
+      { name: 'Credit Card', isDefault: false },
+      { name: 'UPI', isDefault: false },
+    ];
+    await Promise.all(
+      defaultPaymentMethods.map((method) =>
+        this.prisma.paymentMethod.upsert({
+          where: { companyId_name: { companyId, name: method.name } },
+          create: { ...method, companyId },
+          update: {},
+        }),
+      ),
+    );
 
     const groupCount = await this.prisma.invoiceGroup.count({
       where: { companyId },

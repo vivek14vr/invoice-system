@@ -89,7 +89,11 @@ export class AuthController {
     @Body() dto: { name: string },
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.authService.createWorkspace(request.user.id, dto.name);
+    return this.authService.createWorkspace(
+      request.user.id,
+      request.user.companyId,
+      dto.name,
+    );
   }
 
   @Delete('workspaces/:id')

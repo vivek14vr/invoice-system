@@ -51,6 +51,8 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const isSystemAdmin = user.email.trim().toLowerCase() === "admin@girjasoft.com";
+  const isDefaultWorkspace = user.workspace?.name === "Default Company";
 
   async function createWorkspace() {
     const name = window.prompt("New workspace name");
@@ -111,7 +113,7 @@ export function Sidebar({
                 >
                   <span className="block truncate">{workspace.name}</span>
                 </button>
-                {workspace.name !== "Default Company" ? (
+                {isSystemAdmin && workspace.name !== "Default Company" ? (
                   <button
                     type="button"
                     aria-label={`Delete ${workspace.name}`}
@@ -132,7 +134,7 @@ export function Sidebar({
                 ) : null}
               </div>
             ))}
-            {user.role === "ADMIN" ? (
+            {isSystemAdmin && isDefaultWorkspace ? (
               <button type="button" onClick={createWorkspace} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50">
                 <Plus className="h-4 w-4" /> Create workspace
               </button>
