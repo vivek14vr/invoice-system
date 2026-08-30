@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <LoadingProvider>
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex min-h-dvh flex-col md:h-screen md:flex-row md:overflow-hidden">
         <Sidebar
           user={user}
           workspaces={workspaces}
@@ -106,8 +106,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onCreateWorkspace={createWorkspace}
           onDeleteWorkspace={deleteWorkspace}
         />
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-8">{children}</div>
         </main>
       </div>
     </LoadingProvider>

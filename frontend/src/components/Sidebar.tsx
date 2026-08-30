@@ -66,8 +66,8 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
-      <div className="flex shrink-0 items-center gap-3 px-5 py-5">
+    <aside className="flex h-auto w-full shrink-0 flex-col border-b border-slate-200 bg-white md:h-full md:w-64 md:border-b-0 md:border-r">
+      <div className="flex shrink-0 items-center gap-3 px-4 py-4 md:px-5 md:py-5">
         <Image
           src="/girjasoft_logo-removebg-preview.png"
           alt="Girjasoft"
@@ -143,7 +143,7 @@ export function Sidebar({
         )}
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
+      <nav className="hidden min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2 md:block">
         {nav.filter((item) => item.href !== "/users" || user.role === "ADMIN").map((item) => {
           const active =
             item.href === "/"
@@ -164,6 +164,25 @@ export function Sidebar({
                 className={`h-4 w-4 ${active ? "text-blue-600" : "text-slate-500"}`}
               />
               {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <nav className="grid grid-cols-2 gap-1 px-3 pb-3 md:hidden">
+        {nav.filter((item) => item.href !== "/users" || user.role === "ADMIN").map((item) => {
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                active ? "bg-slate-100 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <Icon className={`h-4 w-4 ${active ? "text-blue-600" : "text-slate-500"}`} />
+              <span className="truncate">{item.label}</span>
             </Link>
           );
         })}
