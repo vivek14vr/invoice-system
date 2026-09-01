@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <LoadingProvider>
-      <div className="flex min-h-dvh flex-col md:h-screen md:flex-row md:overflow-hidden">
+      <div className="flex h-screen overflow-hidden">
         <Sidebar
           user={user}
           workspaces={workspaces}
