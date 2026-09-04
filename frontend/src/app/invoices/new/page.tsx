@@ -12,6 +12,7 @@ import {
   SettingsPayload,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { compactSearch } from "@/lib/search";
 import {
   Card,
   Field,
@@ -170,13 +171,13 @@ export default function NewInvoicePage() {
   }, [clientSearch]);
 
   const filteredClients = useMemo(() => {
-    const q = clientSearch.trim().toLowerCase();
+    const q = compactSearch(clientSearch);
     if (!q) return clients;
     return clients.filter(
       (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q) ||
-        c.company?.toLowerCase().includes(q),
+        compactSearch(c.name).includes(q) ||
+        compactSearch(c.email ?? '').includes(q) ||
+        compactSearch(c.company ?? '').includes(q),
     );
   }, [clients, clientSearch]);
 
@@ -241,13 +242,13 @@ export default function NewInvoicePage() {
   }
 
   function filteredProducts(query: string) {
-    const q = query.trim().toLowerCase();
+    const q = compactSearch(query);
     if (!q) return products.slice(0, 8);
     return products
       .filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.sku?.toLowerCase().includes(q),
+          compactSearch(p.name).includes(q) ||
+          compactSearch(p.sku ?? '').includes(q),
       )
       .slice(0, 8);
   }
