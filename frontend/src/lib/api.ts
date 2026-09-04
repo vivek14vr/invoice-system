@@ -1,13 +1,17 @@
 import { notifyLoadingStart, notifyLoadingStop } from "@/lib/loading-bus";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:3001")).replace(/\/+$/, "");
+
+function apiPath(path: string) {
+  return `${API_URL}/${path.replace(/^\/+/, "")}`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   notifyLoadingStart();
   try {
     let res: Response;
     try {
-      res = await fetch(`${API_URL}${path}`, {
+      res = await fetch(apiPath(path), {
       ...init,
       credentials: "include",
       headers: {
@@ -51,14 +55,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   get: <T>(path: string) => request<T>(path),
   getAll: async <T>(path: string, pageSize = 100) => {
-    const url = new URL(path, API_URL);
+    // NEXT_PUBLIC_API_URL is `/api` in production, so it is a relative base
+    // and cannot be passed to the URL constructor. Keep pagination relative
+    // to the API path so this works with both relative and absolute bases.
+    const [pathname, query = ""] = path.split("?", 2);
+    const params = new URLSearchParams(query);
     const results: T[] = [];
     let page = 1;
     let totalPages = 1;
     do {
-      url.searchParams.set("page", String(page));
-      url.searchParams.set("pageSize", String(pageSize));
-      const response = await request<T[] | PaginatedResponse<T>>(`${url.pathname}${url.search}`);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      const response = await request<T[] | PaginatedResponse<T>>(`${pathname}?${params.toString()}`);
       if (Array.isArray(response)) return response;
       results.push(...response.data);
       totalPages = response.meta.totalPages;
@@ -71,9 +79,9 @@ export const api = {
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-  pdfUrl: (invoiceId: string) => `${API_URL}/invoices/${invoiceId}/pdf`,
-  expenseAttachmentUrl: (expenseId: string) => `${API_URL}/expenses/${expenseId}/attachment`,
-  reportsExportUrl: (query: string) => `${API_URL}/reports/export?${query}`,
+  pdfUrl: (invoiceId: string) => apiPath(`/invoices/${invoiceId}/pdf`),
+  expenseAttachmentUrl: (expenseId: string) => apiPath(`/expenses/${expenseId}/attachment`),
+  reportsExportUrl: (query: string) => `${apiPath("/reports/export")}?${query}`,
 };
 
 export type ReportResponse = {
