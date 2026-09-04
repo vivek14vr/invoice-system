@@ -30,27 +30,31 @@ export default function RecordPaymentPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      api.get<PaginatedResponse<Invoice>>("/invoices?page=1&pageSize=100"),
-      api.get<SettingsPayload>("/settings"),
-    ])
-      .then(([inv, settings]) => {
-        setInvoices(
-          inv.data.filter(
-            (invoice) =>
-              invoice.status !== "CANCELLED" &&
-              Number(invoice.balanceDue ?? invoice.total) > 0,
-          ),
-        );
+    api.get<SettingsPayload>("/settings")
+      .then((settings) => {
         setMethods(settings.paymentMethods);
         const def = settings.paymentMethods.find((m) => m.isDefault);
         if (def) setMethod(def.name);
-        else if (settings.paymentMethods[0]) {
-          setMethod(settings.paymentMethods[0].name);
-        }
+        else if (settings.paymentMethods[0]) setMethod(settings.paymentMethods[0].name);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ page: "1", pageSize: "100" });
+      const query = invoiceSearch.trim();
+      if (query) params.set("search", query);
+      api.get<PaginatedResponse<Invoice>>(`/invoices?${params}`)
+        .then((response) => setInvoices(
+          response.data.filter(
+            (invoice) => invoice.status !== "CANCELLED" && Number(invoice.balanceDue ?? invoice.total) > 0,
+          ),
+        ))
+        .catch((e: Error) => setError(e.message));
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [invoiceSearch]);
 
   const filteredInvoices = useMemo(() => {
     const q = invoiceSearch.trim().toLowerCase();

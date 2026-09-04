@@ -29,3 +29,24 @@ export class CreatePaymentDto {
   @IsString()
   notes?: string;
 }
+
+export class UpdatePaymentDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  method?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
+
+  @IsOptional()
+  @IsDateString()
+  paidAt?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}

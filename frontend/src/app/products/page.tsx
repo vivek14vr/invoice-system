@@ -100,8 +100,13 @@ export default function ProductsPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete product?")) return;
-    await api.delete(`/products/${id}`);
-    await load();
+    try {
+      setError("");
+      await api.delete(`/products/${id}`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete product");
+    }
   }
 
   return (

@@ -126,13 +126,11 @@ export default function NewInvoicePage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<Client[] | PaginatedResponse<Client>>("/clients"),
-      api.get<Product[] | PaginatedResponse<Product>>("/products"),
+      api.getAll<Product>("/products"),
       api.get<SettingsPayload>("/settings"),
     ])
-      .then(([c, p, s]) => {
-        setClients(Array.isArray(c) ? c : c.data);
-        setProducts(Array.isArray(p) ? p : p.data);
+      .then(([p, s]) => {
+        setProducts(p);
         setInvoiceGroups(s.invoiceGroups);
         setSellerState(
           normalizeState(s.settings.company_state_code) ||
@@ -157,6 +155,19 @@ export default function NewInvoicePage() {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    const query = clientSearch.trim();
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ page: "1", pageSize: "100" });
+      if (query) params.set("search", query);
+      api
+        .get<Client[] | PaginatedResponse<Client>>(`/clients?${params.toString()}`)
+        .then((response) => setClients(Array.isArray(response) ? response : response.data))
+        .catch((e: Error) => setError(e.message));
+    }, query ? 250 : 0);
+    return () => window.clearTimeout(timer);
+  }, [clientSearch]);
 
   const filteredClients = useMemo(() => {
     const q = clientSearch.trim().toLowerCase();

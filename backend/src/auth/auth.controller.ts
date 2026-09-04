@@ -4,8 +4,10 @@ import {
   Delete,
   Get,
   HttpCode,
+  Patch,
   Post,
   Param,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -49,8 +51,8 @@ export class AuthController {
 
   @Get('users')
   @AdminOnly()
-  users(@Req() request: AuthenticatedRequest) {
-    return this.authService.listUsers(request.user.companyId);
+  users(@Req() request: AuthenticatedRequest, @Query('companyId') companyId?: string) {
+    return this.authService.listUsers(this.managementCompanyId(request, companyId));
   }
 
   @Post('users')
@@ -62,20 +64,40 @@ export class AuthController {
       name: string;
       password: string;
       role?: 'ADMIN' | 'READ_ONLY';
+      companyId?: string;
     },
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.authService.createUser(dto, request.user.companyId);
+    return this.authService.createUser(dto, this.managementCompanyId(request, dto.companyId));
+  }
+
+  @Post('users/existing')
+  @AdminOnly()
+  addExistingUser(
+    @Body() dto: { email: string; role?: 'ADMIN' | 'READ_ONLY'; companyId?: string },
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.authService.addExistingUser(dto, this.managementCompanyId(request, dto.companyId));
   }
 
   @Delete('users/:id')
   @AdminOnly()
-  removeUser(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+  removeUser(@Param('id') id: string, @Req() request: AuthenticatedRequest, @Query('companyId') companyId?: string) {
     return this.authService.removeUser(
       id,
       request.user.id,
-      request.user.companyId,
+      this.managementCompanyId(request, companyId),
     );
+  }
+
+  @Patch('users/:id')
+  @AdminOnly()
+  updateUser(
+    @Param('id') id: string,
+    @Body() dto: { name?: string; role?: 'ADMIN' | 'READ_ONLY'; companyId?: string },
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.authService.updateUser(id, dto, this.managementCompanyId(request, dto.companyId));
   }
 
   @Get('workspaces')
@@ -86,7 +108,7 @@ export class AuthController {
   @Post('workspaces')
   @AdminOnly()
   createWorkspace(
-    @Body() dto: { name: string },
+    @Body() dto: { name: string; isRestricted?: boolean },
     @Req() request: AuthenticatedRequest,
   ) {
     return this.authService.createWorkspace(
@@ -103,6 +125,16 @@ export class AuthController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.authService.deleteWorkspace(id, request.user.id);
+  }
+
+  @Patch('workspaces/:id')
+  @AdminOnly()
+  renameWorkspace(
+    @Param('id') id: string,
+    @Body() dto: { name: string; isRestricted?: boolean },
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.authService.renameWorkspace(id, request.user.id, dto.name, dto.isRestricted);
   }
 
   @Post('switch-workspace')
@@ -133,5 +165,10 @@ export class AuthController {
       secure: process.env.COOKIE_SECURE === 'true',
       path: '/',
     });
+  }
+
+  private managementCompanyId(request: AuthenticatedRequest, requested?: string) {
+    const isSystemAdmin = request.user.email.trim().toLowerCase() === 'admin@girjasoft.com';
+    return isSystemAdmin && requested ? requested : request.user.companyId;
   }
 }

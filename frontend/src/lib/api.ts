@@ -5,7 +5,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   notifyLoadingStart();
   try {
-    const res = await fetch(`${API_URL}${path}`, {
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}${path}`, {
       ...init,
       credentials: "include",
       headers: {
@@ -13,7 +15,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ...(init?.headers ?? {}),
       },
       cache: "no-store",
-    });
+      });
+    } catch {
+      throw new Error("Unable to connect to the server. Check that the backend is running and try again.");
+    }
     if (
       res.status === 401 &&
       typeof window !== "undefined" &&
@@ -23,15 +28,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     if (!res.ok) {
       const text = await res.text();
-      let message = text;
+      let message = "";
       try {
         const payload = JSON.parse(text) as { message?: string | string[] };
         if (Array.isArray(payload.message)) message = payload.message.join(", ");
         else if (payload.message) message = payload.message;
+        else message = `The server could not complete the request (${res.status}).`;
       } catch {
-        // Keep non-JSON server responses as-is.
+        message = res.status === 413
+          ? "The request is too large. Reduce the attachment size and try again."
+          : `The server could not complete the request (${res.status}).`;
       }
-      throw new Error(message || `Request failed: ${res.status}`);
+      throw new Error(message || `The server could not complete the request (${res.status}).`);
     }
     if (res.status === 204) return undefined as T;
     return res.json() as Promise<T>;
@@ -42,6 +50,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  getAll: async <T>(path: string, pageSize = 100) => {
+    const url = new URL(path, API_URL);
+    const results: T[] = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      url.searchParams.set("page", String(page));
+      url.searchParams.set("pageSize", String(pageSize));
+      const response = await request<T[] | PaginatedResponse<T>>(`${url.pathname}${url.search}`);
+      if (Array.isArray(response)) return response;
+      results.push(...response.data);
+      totalPages = response.meta.totalPages;
+      page += 1;
+    } while (page <= totalPages);
+    return results;
+  },
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) =>
@@ -68,7 +92,7 @@ export type AuthUser = {
 };
 
 export type Company = { id: string; name: string; legalName?: string | null; gstin?: string | null; state?: string | null; stateCode?: string | null };
-export type Workspace = Company & { role: "ADMIN" | "READ_ONLY" };
+export type Workspace = Company & { role: "ADMIN" | "READ_ONLY"; isRestricted?: boolean };
 export type ManagedUser = AuthUser & { company?: Company | null };
 
 export type AuthResponse = {

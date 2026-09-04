@@ -2,21 +2,67 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto, UpdateExpenseDto } from './dto/expense.dto';
 import { GridFsService } from '../files/gridfs.service';
+import { buildSearchKey, compactSearch, escapeSearchRegex } from '../common/search';
 
 function money(value: number) {
   return Math.round(value * 100) / 100;
 }
 
 @Injectable()
-export class ExpensesService {
+export class ExpensesService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: GridFsService,
   ) {}
+
+  onModuleInit() {
+    void this.backfillSearchKeys();
+  }
+
+  private async backfillSearchKeys() {
+    try {
+      const expenses = await this.prisma.expense.findMany({
+        where: { searchKey: null },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          vendorName: true,
+          vatGstNumber: true,
+          category: true,
+          paymentMode: true,
+          itemDetails: true,
+          notes: true,
+        },
+      });
+      for (let index = 0; index < expenses.length; index += 25) {
+        await Promise.all(
+          expenses.slice(index, index + 25).map((expense) =>
+            this.prisma.expense.update({
+              where: { id: expense.id },
+              data: {
+                searchKey: buildSearchKey(
+                  expense.invoiceNumber,
+                  expense.vendorName,
+                  expense.vatGstNumber,
+                  expense.category,
+                  expense.paymentMode,
+                  expense.itemDetails,
+                  expense.notes,
+                ),
+              },
+            }),
+          ),
+        );
+      }
+    } catch (error) {
+      console.error('Expense search-key backfill failed:', error);
+    }
+  }
 
   async findAll(
     companyId?: string | null,
@@ -35,13 +81,22 @@ export class ExpensesService {
       | 'vendorName' = 'expenseDate',
     sortOrder: 'asc' | 'desc' = 'desc',
   ) {
+    const normalizedSearch = search?.trim();
+    const normalizedCategory = category?.trim();
+    const normalizedPaymentMode = paymentMode?.trim();
+    const escapedSearch = normalizedSearch ? escapeSearchRegex(normalizedSearch) : '';
+    const escapedCategory = normalizedCategory ? escapeSearchRegex(normalizedCategory) : '';
+    const escapedPaymentMode = normalizedPaymentMode ? escapeSearchRegex(normalizedPaymentMode) : '';
+    const escapedCompactSearch = normalizedSearch
+      ? escapeSearchRegex(compactSearch(normalizedSearch))
+      : '';
     const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
     const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
     const where = {
       AND: [
         companyId ? { companyId } : {},
-        category ? { category: { contains: category } } : {},
-        paymentMode ? { paymentMode: { contains: paymentMode } } : {},
+        normalizedCategory ? { category: { contains: escapedCategory, mode: 'insensitive' as const } } : {},
+        normalizedPaymentMode ? { paymentMode: { contains: escapedPaymentMode, mode: 'insensitive' as const } } : {},
         from || to
           ? {
               expenseDate: {
@@ -50,13 +105,14 @@ export class ExpensesService {
               },
             }
           : {},
-        search
+        normalizedSearch
           ? {
               OR: [
-                { invoiceNumber: { contains: search } },
-                { vendorName: { contains: search } },
-                { vatGstNumber: { contains: search } },
-                { itemDetails: { contains: search } },
+                { searchKey: { contains: escapedCompactSearch, mode: 'insensitive' as const } },
+                { invoiceNumber: { contains: escapedSearch, mode: 'insensitive' as const } },
+                { vendorName: { contains: escapedSearch, mode: 'insensitive' as const } },
+                { vatGstNumber: { contains: escapedSearch, mode: 'insensitive' as const } },
+                { itemDetails: { contains: escapedSearch, mode: 'insensitive' as const } },
               ],
             }
           : {},
@@ -161,6 +217,15 @@ export class ExpensesService {
     previousAttachmentId?: string | null,
   ) {
     const data = this.values(dto);
+    const searchKey = buildSearchKey(
+      data.invoiceNumber,
+      data.vendorName,
+      data.vatGstNumber,
+      data.category,
+      data.paymentMode,
+      data.itemDetails,
+      data.notes,
+    );
     const hasNewAttachment = Boolean(dto.attachmentData && dto.attachmentName);
     const uploaded = hasNewAttachment
       ? await this.files.uploadPdf(dto.attachmentData!, dto.attachmentName!)
@@ -176,11 +241,12 @@ export class ExpensesService {
     const expense = id
       ? await this.prisma.expense.update({
           where: { id },
-          data: { ...data, ...attachmentFields },
+          data: { ...data, searchKey, ...attachmentFields },
         })
       : await this.prisma.expense.create({
           data: {
             ...data,
+            searchKey,
             ...attachmentFields,
             companyId: companyId ?? undefined,
           },

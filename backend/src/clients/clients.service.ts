@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClientDto, UpdateClientDto } from './dto/client.dto';
+import { escapeSearchRegex } from '../common/search';
 
 function buildDisplayName(parts: {
   firstName?: string | null;
@@ -19,9 +20,54 @@ function buildDisplayName(parts: {
   return person || 'Unnamed Client';
 }
 
+function buildSearchKey(parts: Record<string, unknown>) {
+  return Object.values(parts)
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .normalize('NFKC')
+    .replace(/\s+/g, '')
+    .toLocaleLowerCase();
+}
+
 @Injectable()
-export class ClientsService {
+export class ClientsService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    void this.backfillSearchKeys();
+  }
+
+  private async backfillSearchKeys() {
+    try {
+      const clients = await this.prisma.client.findMany({
+        where: { searchKey: null },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          company: true,
+          name: true,
+          email: true,
+          phone: true,
+          mobile: true,
+          city: true,
+        },
+      });
+
+      for (let index = 0; index < clients.length; index += 25) {
+        await Promise.all(
+          clients.slice(index, index + 25).map((client) =>
+            this.prisma.client.update({
+              where: { id: client.id },
+              data: { searchKey: buildSearchKey(client) },
+            }),
+          ),
+        );
+      }
+    } catch (error) {
+      console.error('Client search-key backfill failed:', error);
+    }
+  }
 
   async findAll(
     search?: string,
@@ -31,19 +77,26 @@ export class ClientsService {
     sortBy: 'name' | 'createdAt' = 'createdAt',
     sortOrder: 'asc' | 'desc' = 'desc',
   ) {
+    const normalizedSearch = search?.trim();
+    const compactSearch = normalizedSearch?.replace(/\s+/g, '');
+    const escapedSearch = normalizedSearch ? escapeSearchRegex(normalizedSearch) : '';
+    const escapedCompactSearch = compactSearch ? escapeSearchRegex(compactSearch) : '';
     const where = {
       ...(companyId ? { companyId } : {}),
-      ...(search
+      ...(normalizedSearch
         ? {
             OR: [
-              { name: { contains: search } },
-              { firstName: { contains: search } },
-              { lastName: { contains: search } },
-              { company: { contains: search } },
-              { email: { contains: search } },
-              { phone: { contains: search } },
-              { mobile: { contains: search } },
-              { city: { contains: search } },
+              ...(compactSearch
+                ? [{ searchKey: { contains: escapedCompactSearch, mode: 'insensitive' as const } }]
+                : []),
+              { name: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { firstName: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { lastName: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { company: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { email: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { phone: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { mobile: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { city: { contains: escapedSearch, mode: 'insensitive' as const } },
             ],
           }
         : {}),
@@ -83,11 +136,35 @@ export class ClientsService {
   }
 
   create(dto: CreateClientDto, companyId?: string | null) {
-    const name = buildDisplayName(dto);
+    const firstName = dto.firstName?.trim();
+    const company = dto.company?.trim();
+    if (!firstName && !company) {
+      throw new BadRequestException('First name or company is required');
+    }
+    // Prisma keeps firstName non-null for existing data. For company-only
+    // clients, use the company as the stored first name and keep the display
+    // name as the company name.
+    const name = buildDisplayName({
+      firstName,
+      lastName: dto.lastName,
+      company: firstName ? company : undefined,
+    });
     return this.prisma.client.create({
       data: {
         ...dto,
+        firstName: firstName || company!,
+        company,
         name,
+        searchKey: buildSearchKey({
+          firstName: firstName || company!,
+          lastName: dto.lastName,
+          company,
+          name,
+          email: dto.email,
+          phone: dto.phone,
+          mobile: dto.mobile,
+          city: dto.city,
+        }),
         country: dto.country ?? 'IN',
         companyId: companyId ?? undefined,
       },
@@ -96,14 +173,33 @@ export class ClientsService {
 
   async update(id: string, dto: UpdateClientDto, companyId?: string | null) {
     const existing = await this.findOne(id, companyId);
+    const firstName = dto.firstName?.trim() || existing.firstName?.trim();
+    const company = dto.company === undefined ? existing.company : dto.company?.trim();
+    if (!firstName && !company) {
+      throw new BadRequestException('First name or company is required');
+    }
     const name = buildDisplayName({
-      firstName: dto.firstName ?? existing.firstName,
+      firstName,
       lastName: dto.lastName ?? existing.lastName,
-      company: dto.company ?? existing.company,
+      company: firstName === company ? undefined : company,
     });
+    const nextClient = {
+      ...existing,
+      ...dto,
+      firstName,
+      lastName: dto.lastName ?? existing.lastName,
+      company,
+      name,
+    };
     return this.prisma.client.update({
       where: { id },
-      data: { ...dto, name },
+      data: {
+        ...dto,
+        firstName,
+        company,
+        name,
+        searchKey: buildSearchKey(nextClient),
+      },
     });
   }
 

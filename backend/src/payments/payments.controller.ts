@@ -3,13 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  Patch,
   Param,
   Post,
   Query,
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { CreatePaymentDto } from './dto/payment.dto';
+import { CreatePaymentDto, UpdatePaymentDto } from './dto/payment.dto';
 import { PaymentsService } from './payments.service';
 type AuthenticatedRequest = Request & { user: { companyId?: string | null } };
 
@@ -50,5 +51,14 @@ export class PaymentsController {
   @Delete(':id')
   remove(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
     return this.paymentsService.remove(id, request.user.companyId);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdatePaymentDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.paymentsService.update(id, dto, request.user.companyId);
   }
 }

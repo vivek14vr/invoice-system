@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { QuoteStatus } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+import { compactSearch, escapeSearchRegex } from '../common/search';
 import { CreateQuotationDto, UpdateQuotationDto } from './dto/quotation.dto';
 
 function money(n: number) {
@@ -61,6 +62,9 @@ export class QuotationsService {
     dateFrom?: string,
     dateTo?: string,
   ) {
+    const normalizedSearch = search?.trim() || '';
+    const escapedSearch = escapeSearchRegex(normalizedSearch);
+    const escapedCompactSearch = escapeSearchRegex(compactSearch(normalizedSearch));
     const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
     const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
     const where = {
@@ -75,11 +79,12 @@ export class QuotationsService {
               },
             }
           : {},
-        search
+        normalizedSearch
           ? {
               OR: [
-                { quoteNumber: { contains: search } },
-                { client: { name: { contains: search } } },
+                { quoteNumber: { contains: escapedSearch, mode: 'insensitive' as const } },
+                { client: { name: { contains: escapedSearch, mode: 'insensitive' as const } } },
+                { client: { searchKey: { contains: escapedCompactSearch, mode: 'insensitive' as const } } },
               ],
             }
           : {},

@@ -50,7 +50,13 @@ export default function AddClientPage() {
       const payload = Object.fromEntries(
         Object.entries(form).map(([k, v]) => [k, v.trim() ? v.trim() : undefined]),
       );
-      payload.firstName = form.firstName.trim();
+      payload.firstName = form.firstName.trim() || undefined;
+      payload.company = form.company.trim() || undefined;
+      if (!payload.firstName && !payload.company) {
+        setError("Enter a first name or company name");
+        setSaving(false);
+        return;
+      }
       payload.country = form.country.trim() || "IN";
       await api.post("/clients", payload);
       router.push("/clients");
@@ -78,9 +84,8 @@ export default function AddClientPage() {
               Basic Information
             </h2>
             <div className="space-y-4">
-              <Field label="First Name *">
+              <Field label="First Name or Company *">
                 <input
-                  required
                   className={inputClass}
                   value={form.firstName}
                   onChange={(e) => set("firstName", e.target.value)}

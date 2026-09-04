@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import type { AuthUser, Workspace } from "@/lib/api";
+import type { AuthUser } from "@/lib/api";
 import {
   Box,
   CreditCard,
@@ -15,12 +15,8 @@ import {
   ReceiptIndianRupee,
   Settings,
   Users,
-  ChevronDown,
-  Plus,
   BarChart3,
-  Trash2,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Building2,
 } from "lucide-react";
 
 const nav = [
@@ -38,49 +34,35 @@ const nav = [
 
 export function Sidebar({
   user,
-  workspaces,
   onLogout,
-  onSwitchWorkspace,
-  onCreateWorkspace,
-  onDeleteWorkspace,
 }: {
   user: AuthUser;
-  workspaces: Workspace[];
   onLogout: () => void;
-  onSwitchWorkspace: (companyId: string) => Promise<void>;
-  onCreateWorkspace: (name: string) => Promise<void>;
-  onDeleteWorkspace: (companyId: string) => Promise<void>;
 }) {
   const pathname = usePathname();
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== "undefined" && window.localStorage.getItem("sidebar-collapsed") === "true",
-  );
-  const isSystemAdmin = user.email.trim().toLowerCase() === "admin@girjasoft.com";
-  const isDefaultWorkspace = user.workspace?.name === "Default Company";
+  const [hoverExpanded, setHoverExpanded] = useState(false);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compact = !hoverExpanded;
 
-  function toggleSidebar() {
-    setCollapsed((current) => {
-      const next = !current;
-      window.localStorage.setItem("sidebar-collapsed", String(next));
-      return next;
-    });
-  }
-
-  async function createWorkspace() {
-    const name = window.prompt("New workspace name");
-    if (!name?.trim()) return;
-    try {
-      await onCreateWorkspace(name.trim());
-      setWorkspaceOpen(false);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Failed to create workspace");
-    }
-  }
+  useEffect(() => () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+  }, []);
 
   return (
-    <aside className={`flex h-screen shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 ${collapsed ? "w-[72px]" : "w-[72px] md:w-64"}`}>
-      <div className={`flex shrink-0 items-center gap-3 px-2 py-4 md:px-5 md:py-5 ${collapsed ? "justify-center" : "justify-center md:justify-start"}`}>
+    <aside
+      onPointerEnter={(event) => {
+        if (event.pointerType === "touch") return;
+        if (leaveTimer.current) clearTimeout(leaveTimer.current);
+        setHoverExpanded(true);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType !== "touch") {
+          leaveTimer.current = setTimeout(() => setHoverExpanded(false), 180);
+        }
+      }}
+      className={`relative z-40 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white shadow-sm transition-[width] duration-[450ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] ${compact ? "w-[72px]" : "w-64"}`}
+    >
+      <div className={`flex h-20 shrink-0 items-center gap-3 px-2 md:px-5 ${compact ? "justify-center" : "justify-center md:justify-start"}`}>
         <Image
           src="/girjasoft_logo-removebg-preview.png"
           alt="Girjasoft"
@@ -88,7 +70,7 @@ export function Sidebar({
           height={36}
           className="h-9 w-9 object-contain"
         />
-        <div className={`${collapsed ? "hidden" : "hidden md:block"}`}>
+          <div className={`${compact ? "hidden" : "hidden md:block"}`}>
           <Image
             src="/girjasoft_name_logo-removebg-preview.png"
             alt="Girjasoft"
@@ -100,61 +82,18 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="relative px-2 pb-3 md:px-3">
-        <button
-          type="button"
-          onClick={() => setWorkspaceOpen((open) => !open)}
+      <div className="h-16 shrink-0 px-2 pb-2 md:px-3">
+        <div
           aria-label={`Workspace: ${user.workspace?.name ?? "Default workspace"}`}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-2 py-2 text-left text-sm hover:bg-slate-50 md:justify-start md:px-3"
+          title={compact ? (user.workspace?.name ?? "Default workspace") : undefined}
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-2 text-left text-sm hover:bg-slate-50 md:justify-start md:px-3"
         >
-          <div className="hidden min-w-0 flex-1 md:block">
+          <Building2 className={`h-5 w-5 shrink-0 text-slate-500 ${compact ? "block" : "md:hidden"}`} aria-hidden="true" />
+          <div className={`${compact ? "hidden" : "hidden min-w-0 flex-1 md:block"}`}>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Workspace</p>
             <p className="truncate font-medium text-slate-700">{user.workspace?.name ?? "Default workspace"}</p>
           </div>
-          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
-        </button>
-        {workspaceOpen && (
-          <div className="absolute left-2 top-full z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-1 shadow-lg md:left-3 md:right-3 md:w-auto">
-            {workspaces.map((workspace) => (
-              <div key={workspace.id} className="flex items-center gap-1 rounded-md">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await onSwitchWorkspace(workspace.id);
-                    setWorkspaceOpen(false);
-                  }}
-                  className={`min-w-0 flex-1 rounded-md px-3 py-2 text-left text-sm ${workspace.id === user.companyId ? "bg-blue-50 font-medium text-blue-700" : "hover:bg-slate-50"}`}
-                >
-                  <span className="block truncate">{workspace.name}</span>
-                </button>
-                {isSystemAdmin && workspace.name !== "Default Company" ? (
-                  <button
-                    type="button"
-                    aria-label={`Delete ${workspace.name}`}
-                    title={`Delete ${workspace.name}`}
-                    onClick={async () => {
-                      if (!window.confirm(`Delete workspace \"${workspace.name}\" and all its data? This cannot be undone.`)) return;
-                      try {
-                        await onDeleteWorkspace(workspace.id);
-                        setWorkspaceOpen(false);
-                      } catch (error) {
-                        window.alert(error instanceof Error ? error.message : "Failed to delete workspace");
-                      }
-                    }}
-                    className="rounded-md p-2 text-rose-500 hover:bg-rose-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
-            ))}
-            {isSystemAdmin && isDefaultWorkspace ? (
-              <button type="button" onClick={createWorkspace} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50">
-                <Plus className="h-4 w-4" /> Create workspace
-              </button>
-            ) : null}
-          </div>
-        )}
+        </div>
       </div>
 
       <nav className="hidden min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2 md:block">
@@ -168,7 +107,7 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center rounded-lg py-2.5 text-sm transition ${collapsed ? "justify-center px-2" : "gap-3 px-3"} ${
+              className={`flex min-h-11 items-center rounded-lg py-2.5 text-sm transition ${compact ? "justify-center px-2" : "gap-3 px-3"} ${
                 active
                   ? "bg-slate-100 font-medium text-slate-900"
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -177,7 +116,7 @@ export function Sidebar({
               <Icon
                 className={`h-4 w-4 ${active ? "text-blue-600" : "text-slate-500"}`}
               />
-              <span className={collapsed ? "sr-only" : ""}>{item.label}</span>
+              <span className={`min-w-0 whitespace-nowrap ${compact ? "hidden" : "block"}`}>{item.label}</span>
             </Link>
           );
         })}
@@ -204,12 +143,12 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="shrink-0 border-t border-slate-200 p-2 md:p-4">
-        <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-center md:justify-start"}`}>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+      <div className={`shrink-0 border-t border-slate-200 ${compact ? "p-2" : "p-2 md:p-4"}`}>
+        <div className={`flex ${compact ? "flex-col items-center gap-2" : "items-center gap-3 justify-center md:justify-start"}`}>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
             A
           </div>
-          <div className={`${collapsed ? "hidden" : "hidden min-w-0 flex-1 md:block"}`}>
+          <div className={`${compact ? "hidden" : "hidden min-w-0 flex-1 md:block"}`}>
             <p className="truncate text-sm font-medium text-slate-900">
               {user.name}
             </p>
@@ -218,21 +157,13 @@ export function Sidebar({
           <button
             type="button"
             onClick={onLogout}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             aria-label="Logout"
+            title={compact ? "Logout" : undefined}
           >
             <LogOut className="h-4 w-4" />
           </button>
         </div>
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-expanded={!collapsed}
-          className="mt-3 hidden min-h-11 w-full items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 md:flex"
-        >
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
         <p className="mt-3 hidden text-center text-[11px] text-slate-400 md:block">
           Powered by girjasoft
         </p>

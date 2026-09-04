@@ -2,13 +2,46 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+import { buildSearchKey, compactSearch, escapeSearchRegex } from '../common/search';
 
 @Injectable()
-export class ProductsService {
+export class ProductsService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    void this.backfillSearchKeys();
+  }
+
+  private async backfillSearchKeys() {
+    try {
+      const products = await this.prisma.product.findMany({
+        where: { searchKey: null },
+        select: { id: true, name: true, sku: true, description: true },
+      });
+      for (let index = 0; index < products.length; index += 25) {
+        await Promise.all(
+          products.slice(index, index + 25).map((product) =>
+            this.prisma.product.update({
+              where: { id: product.id },
+              data: {
+                searchKey: buildSearchKey(
+                  product.name,
+                  product.sku,
+                  product.description,
+                ),
+              },
+            }),
+          ),
+        );
+      }
+    } catch (error) {
+      console.error('Product search-key backfill failed:', error);
+    }
+  }
 
   async findAll(
     search?: string,
@@ -18,11 +51,20 @@ export class ProductsService {
     sortBy: 'name' | 'price' | 'purchasePrice' | 'createdAt' = 'createdAt',
     sortOrder: 'asc' | 'desc' = 'desc',
   ) {
+    const normalizedSearch = search?.trim();
+    const escapedSearch = normalizedSearch ? escapeSearchRegex(normalizedSearch) : '';
+    const escapedCompactSearch = normalizedSearch
+      ? escapeSearchRegex(compactSearch(normalizedSearch))
+      : '';
     const where = {
       ...(companyId ? { companyId } : {}),
-      ...(search
+      ...(normalizedSearch
         ? {
-            OR: [{ name: { contains: search } }, { sku: { contains: search } }],
+            OR: [
+              { searchKey: { contains: escapedCompactSearch, mode: 'insensitive' as const } },
+              { name: { contains: escapedSearch, mode: 'insensitive' as const } },
+              { sku: { contains: escapedSearch, mode: 'insensitive' as const } },
+            ],
           }
         : {}),
     };
@@ -57,17 +99,30 @@ export class ProductsService {
     const sku = dto.sku?.trim() || null;
     await this.assertSkuAvailable(sku, undefined, companyId);
     return this.prisma.product.create({
-      data: { ...dto, sku, companyId: companyId ?? undefined },
+      data: {
+        ...dto,
+        sku,
+        searchKey: buildSearchKey(dto.name, sku, dto.description),
+        companyId: companyId ?? undefined,
+      },
     });
   }
 
   async update(id: string, dto: UpdateProductDto, companyId?: string | null) {
-    await this.findOne(id, companyId);
+    const existing = await this.findOne(id, companyId);
     const sku = dto.sku === undefined ? undefined : dto.sku?.trim() || null;
     await this.assertSkuAvailable(sku, id, companyId);
     return this.prisma.product.update({
       where: { id },
-      data: { ...dto, sku },
+      data: {
+        ...dto,
+        sku,
+        searchKey: buildSearchKey(
+          dto.name ?? existing.name,
+          dto.description ?? existing.description,
+          sku ?? existing.sku,
+        ),
+      },
     });
   }
 

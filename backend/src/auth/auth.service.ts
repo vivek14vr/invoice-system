@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   HttpException,
   HttpStatus,
@@ -23,7 +24,7 @@ type SafeUser = {
   name: string;
   role: 'ADMIN' | 'READ_ONLY';
   companyId?: string | null;
-  workspace?: { id: string; name: string } | null;
+  workspace?: { id: string; name: string; isRestricted?: boolean } | null;
 };
 const SYSTEM_ADMIN_EMAIL = 'admin@girjasoft.com';
 const LEGACY_ADMIN_EMAILS = new Set([
@@ -166,16 +167,29 @@ export class AuthService implements OnModuleInit {
           where: { id: admin.id },
           data: { role: 'ADMIN', companyId: company.id },
         });
-        await this.prisma.workspaceMembership.deleteMany({
-          where: { userId: admin.id, companyId: { not: company.id } },
+        // The system administrator must retain a membership in every
+        // workspace. The sidebar can then reload all workspaces after a
+        // logout/login instead of only showing the in-memory newly-created
+        // workspace.
+        const allCompanies = await this.prisma.company.findMany({
+          select: { id: true },
         });
-        await this.prisma.workspaceMembership.upsert({
-          where: {
-            userId_companyId: { userId: admin.id, companyId: company.id },
-          },
-          create: { userId: admin.id, companyId: company.id, role: 'ADMIN' },
-          update: { role: 'ADMIN' },
-        });
+        for (const workspace of allCompanies) {
+          await this.prisma.workspaceMembership.upsert({
+            where: {
+              userId_companyId: {
+                userId: admin.id,
+                companyId: workspace.id,
+              },
+            },
+            create: {
+              userId: admin.id,
+              companyId: workspace.id,
+              role: 'ADMIN',
+            },
+            update: { role: 'ADMIN' },
+          });
+        }
         await this.prisma.session.updateMany({
           where: { userId: admin.id },
           data: { activeCompanyId: company.id },
@@ -221,7 +235,10 @@ export class AuthService implements OnModuleInit {
 
     const token = randomBytes(32).toString('base64url');
     const membership = await this.prisma.workspaceMembership.findFirst({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        ...(isSystemAdmin(user.email) ? {} : { company: { isRestricted: false } }),
+      },
       orderBy: { createdAt: 'asc' },
       include: { company: true },
     });
@@ -313,6 +330,15 @@ export class AuthService implements OnModuleInit {
         `${SYSTEM_ADMIN_EMAIL} is reserved for the Default Company administrator`,
       );
     }
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (existingUser) {
+      throw new BadRequestException(
+        'A user with this email already exists. Use “Add existing user” to assign them to this workspace.',
+      );
+    }
     const role = dto.role ?? 'READ_ONLY';
     const passwordHash = await hashPassword(dto.password);
     const user = await this.prisma.$transaction(async (tx) => {
@@ -359,6 +385,24 @@ export class AuthService implements OnModuleInit {
         },
       ];
     });
+  }
+
+  async addExistingUser(
+    dto: { email: string; role?: 'ADMIN' | 'READ_ONLY' },
+    companyId?: string | null,
+  ) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
+    const email = dto.email.trim().toLowerCase();
+    if (isSystemAdmin(email)) throw new BadRequestException(`${SYSTEM_ADMIN_EMAIL} is reserved for the Default Company administrator`);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new NotFoundException('No existing user was found with this email');
+    const existing = await this.prisma.workspaceMembership.findUnique({ where: { userId_companyId: { userId: user.id, companyId } } });
+    if (existing) throw new BadRequestException('This user is already assigned to the workspace');
+    const role = dto.role ?? 'READ_ONLY';
+    const membership = await this.prisma.workspaceMembership.create({ data: { userId: user.id, companyId, role } });
+    await this.prisma.user.update({ where: { id: user.id }, data: { role } });
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    return this.safeUser(user, companyId, membership.role, company);
   }
 
   async removeUser(id: string, requesterId: string, companyId?: string | null) {
@@ -409,6 +453,33 @@ export class AuthService implements OnModuleInit {
       orderBy: { createdAt: 'asc' },
     });
     return memberships.map(({ company, role }) => ({ ...company, role }));
+  }
+
+  async updateUser(
+    id: string,
+    dto: { name?: string; role?: 'ADMIN' | 'READ_ONLY' },
+    companyId?: string | null,
+  ) {
+    if (!companyId) throw new NotFoundException('Workspace not found');
+    const target = await this.prisma.user.findUnique({ where: { id } });
+    if (!target || isSystemAdmin(target.email)) throw new NotFoundException('User not found');
+    const membership = await this.prisma.workspaceMembership.findUnique({
+      where: { userId_companyId: { userId: id, companyId } },
+    });
+    if (!membership) throw new NotFoundException('User not found in this workspace');
+    const name = dto.name?.trim();
+    if (dto.name !== undefined && !name) throw new BadRequestException('User name is required');
+    const role = dto.role ?? membership.role;
+    if (membership.role === 'ADMIN' && role !== 'ADMIN') {
+      const adminCount = await this.prisma.workspaceMembership.count({ where: { companyId, role: 'ADMIN' } });
+      if (adminCount <= 1) throw new BadRequestException('A workspace must keep at least one administrator');
+    }
+    await this.prisma.$transaction([
+      this.prisma.workspaceMembership.update({ where: { id: membership.id }, data: { role } }),
+      this.prisma.user.update({ where: { id }, data: { ...(name ? { name } : {}), role } }),
+    ]);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    return this.safeUser({ ...target, ...(name ? { name } : {}), role }, companyId, role, company);
   }
 
   async createWorkspace(
@@ -549,6 +620,18 @@ export class AuthService implements OnModuleInit {
     return { ok: true, deletedWorkspaceId: companyId };
   }
 
+  async renameWorkspace(companyId: string, requesterId: string, name: string, isRestricted?: boolean) {
+    const requester = await this.prisma.user.findUnique({ where: { id: requesterId }, select: { email: true } });
+    if (!isSystemAdmin(requester?.email ?? '')) throw new UnauthorizedException('Only the system administrator can rename workspaces');
+    const workspaceName = name.trim();
+    if (!workspaceName) throw new BadRequestException('Workspace name is required');
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('Workspace not found');
+    if (company.name === 'Default Company' && (workspaceName !== company.name || isRestricted)) throw new BadRequestException('Default Company cannot be renamed or restricted');
+    const updated = await this.prisma.company.update({ where: { id: companyId }, data: { name: workspaceName, ...(isRestricted !== undefined ? { isRestricted } : {}) } });
+    return { ...updated, role: 'ADMIN' as const };
+  }
+
   async switchWorkspace(userId: string, token?: string, companyId?: string) {
     if (!token || !companyId)
       throw new UnauthorizedException('Workspace selection failed');
@@ -560,6 +643,9 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException(
         'You do not have access to this workspace',
       );
+    if (membership.company.isRestricted && !isSystemAdmin(membership.user.email)) {
+      throw new ForbiddenException('This workspace is restricted');
+    }
     await this.prisma.session.updateMany({
       where: { tokenHash: tokenHash(token), userId },
       data: { activeCompanyId: companyId },
@@ -579,7 +665,7 @@ export class AuthService implements OnModuleInit {
     },
     companyId = user.companyId,
     role = user.role ?? 'READ_ONLY',
-    workspace?: { id: string; name: string } | null,
+    workspace?: { id: string; name: string; isRestricted?: boolean } | null,
   ): SafeUser {
     return {
       id: user.id,
@@ -587,7 +673,13 @@ export class AuthService implements OnModuleInit {
       name: user.name,
       role,
       companyId,
-      workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
+      workspace: workspace
+        ? {
+            id: workspace.id,
+            name: workspace.name,
+            isRestricted: workspace.isRestricted ?? false,
+          }
+        : null,
     };
   }
 }

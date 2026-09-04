@@ -1,9 +1,10 @@
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateClientDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  firstName!: string;
+  firstName?: string;
 
   @IsOptional()
   @IsString()

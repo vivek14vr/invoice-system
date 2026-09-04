@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Download, FileMinus, Plus, Save, Trash2 } from "lucide-react";
-import { api, Client, Invoice, PaginatedResponse, SettingsPayload } from "@/lib/api";
+import { api, Client, Invoice, SettingsPayload } from "@/lib/api";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PageLoader } from "@/components/Loader";
 import {
@@ -71,12 +71,12 @@ export default function InvoiceDetailPage() {
   useEffect(() => {
     Promise.all([
       api.get<Invoice>(`/invoices/${params.id}`),
-      api.get<Client[] | PaginatedResponse<Client>>("/clients"),
+      api.getAll<Client>("/clients"),
       api.get<SettingsPayload>("/settings"),
     ])
       .then(([inv, allClients, settings]) => {
         setInvoice(inv);
-        setClients(Array.isArray(allClients) ? allClients : allClients.data);
+        setClients(allClients);
         setPaymentMethods(settings.paymentMethods);
         const defaultMethod = settings.paymentMethods.find((item) => item.isDefault) ?? settings.paymentMethods[0];
         if (defaultMethod) setPaymentMethod(defaultMethod.name);

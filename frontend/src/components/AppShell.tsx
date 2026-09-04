@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LoadingProvider, Spinner } from "@/components/Loader";
 import { Sidebar } from "@/components/Sidebar";
-import { api, AuthResponse, AuthUser, Workspace } from "@/lib/api";
+import { api, AuthResponse, AuthUser } from "@/lib/api";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const userRef = useRef<AuthUser | null>(null);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
@@ -29,18 +29,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (pathname === "/login") return;
+    if (userRef.current) return;
 
     let active = true;
     api
       .get<AuthResponse>("/auth/me")
       .then(async (response) => {
         if (!active) return;
+        userRef.current = response.user;
         setUser(response.user);
-        const available = await api.get<Workspace[]>("/auth/workspaces");
-        if (active) setWorkspaces(available);
       })
       .catch(() => {
         if (active) {
+          userRef.current = null;
           setUser(null);
           router.replace("/login");
         }
@@ -54,32 +55,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     try {
       await api.post("/auth/logout", {});
     } finally {
+      userRef.current = null;
       setUser(null);
       router.replace("/login");
       router.refresh();
-    }
-  }
-
-  async function switchWorkspace(companyId: string) {
-    const response = await api.post<AuthResponse>("/auth/switch-workspace", { companyId });
-    setUser(response.user);
-    router.replace("/");
-    router.refresh();
-  }
-
-  async function createWorkspace(name: string) {
-    const workspace = await api.post<Workspace>("/auth/workspaces", { name });
-    setWorkspaces((items) => [...items, workspace]);
-    await switchWorkspace(workspace.id);
-  }
-
-  async function deleteWorkspace(companyId: string) {
-    await api.delete(`/auth/workspaces/${companyId}`);
-    const available = await api.get<Workspace[]>('/auth/workspaces');
-    setWorkspaces(available);
-    if (user?.companyId === companyId) {
-      const fallback = available[0];
-      if (fallback) await switchWorkspace(fallback.id);
     }
   }
 
@@ -100,11 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen overflow-hidden">
         <Sidebar
           user={user}
-          workspaces={workspaces}
           onLogout={logout}
-          onSwitchWorkspace={switchWorkspace}
-          onCreateWorkspace={createWorkspace}
-          onDeleteWorkspace={deleteWorkspace}
         />
         <main className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-8">{children}</div>

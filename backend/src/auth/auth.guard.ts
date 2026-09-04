@@ -30,12 +30,18 @@ export class AuthGuard implements CanActivate {
     const token = request.cookies?.[SESSION_COOKIE] as string | undefined;
     const user = await this.authService.validateSession(token);
     if (!user) throw new UnauthorizedException('Authentication required');
+    if (!user.companyId) {
+      throw new UnauthorizedException('An active workspace is required');
+    }
     const adminOnly = this.reflector.getAllAndOverride<boolean>(
       ADMIN_ONLY_KEY,
       [context.getHandler(), context.getClass()],
     );
     if (adminOnly && user.role !== 'ADMIN')
       throw new ForbiddenException('Administrator access required');
+    if (user.workspace?.isRestricted && !request.path.startsWith('/auth/')) {
+      throw new ForbiddenException('This workspace is restricted');
+    }
     if (
       user.role === 'READ_ONLY' &&
       request.method !== 'GET' &&

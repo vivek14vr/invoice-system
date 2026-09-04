@@ -39,8 +39,13 @@ export default function ClientsPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete this client?")) return;
-    await api.delete(`/clients/${id}`);
-    await load();
+    try {
+      setError("");
+      await api.delete(`/clients/${id}`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete client");
+    }
   }
 
   return (

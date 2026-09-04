@@ -47,6 +47,7 @@ model User {
 model Company {
   id        String          @id @default(cuid()) @map("_id")
   name      String
+  isRestricted Boolean @default(false)
   legalName String?
   gstin     String?
   state     String?
@@ -103,6 +104,7 @@ model Client {
   lastName     String?
   company      String?
   name         String
+  searchKey    String?
   email        String?
   phone        String?
   mobile       String?
@@ -125,11 +127,13 @@ model Client {
   payments     Payment[]
 
   @@index([companyId])
+  @@index([companyId, searchKey])
 }
 
 model Product {
   id            String   @id @default(cuid()) @map("_id")
   name          String
+  searchKey     String?
   sku           String?
   price         Float    @default(0)
   purchasePrice Float    @default(0)
@@ -140,6 +144,7 @@ model Product {
   updatedAt     DateTime @updatedAt
 
   @@index([companyId])
+  @@index([companyId, searchKey])
 }
 
 model Invoice {
@@ -275,6 +280,7 @@ model Expense {
   paymentMode   String
   expenseDate   DateTime  @default(now())
   itemDetails   String
+  searchKey     String?
   quantity      Float     @default(1)
   amount        Float
   gstRate       Float     @default(0)
@@ -292,6 +298,7 @@ model Expense {
   updatedAt     DateTime  @updatedAt
 
   @@index([companyId])
+  @@index([companyId, searchKey])
   @@index([expenseDate])
 }
 

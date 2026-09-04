@@ -11,6 +11,7 @@ import {
   UpdateInvoiceDto,
 } from './dto/invoice.dto';
 import { buildTaxInvoicePdf } from './tax-invoice-pdf';
+import { compactSearch, escapeSearchRegex } from '../common/search';
 
 function money(n: number) {
   return Math.round(n * 100) / 100;
@@ -275,6 +276,9 @@ export class InvoicesService {
     dateFrom?: string,
     dateTo?: string,
   ) {
+    const normalizedSearch = search?.trim() || '';
+    const escapedSearch = escapeSearchRegex(normalizedSearch);
+    const escapedCompactSearch = escapeSearchRegex(compactSearch(normalizedSearch));
     const from = dateFrom ? new Date(`${dateFrom}T00:00:00.000Z`) : undefined;
     const to = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : undefined;
     const where = {
@@ -289,11 +293,12 @@ export class InvoicesService {
               },
             }
           : {},
-        search
+        normalizedSearch
           ? {
               OR: [
-                { invoiceNumber: { contains: search } },
-                { client: { name: { contains: search } } },
+                { invoiceNumber: { contains: escapedSearch, mode: 'insensitive' as const } },
+                { client: { name: { contains: escapedSearch, mode: 'insensitive' as const } } },
+                { client: { searchKey: { contains: escapedCompactSearch, mode: 'insensitive' as const } } },
               ],
             }
           : {},

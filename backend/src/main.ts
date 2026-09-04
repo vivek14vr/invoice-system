@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { json, urlencoded } from 'express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { HttpExceptionFilter } from './common/http-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -20,6 +21,7 @@ async function bootstrap() {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
+  app.useGlobalFilters(new HttpExceptionFilter());
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port);
   console.log(`API running on http://localhost:${port}`);
