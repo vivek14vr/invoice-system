@@ -234,14 +234,18 @@ export class AuthService implements OnModuleInit {
     }
 
     const token = randomBytes(32).toString('base64url');
-    const membership = await this.prisma.workspaceMembership.findFirst({
-      where: {
-        userId: user.id,
-        ...(isSystemAdmin(user.email) ? {} : { company: { isRestricted: false } }),
-      },
+    // Load the related workspace before checking its restriction status. The
+    // MongoDB Prisma connector can incorrectly return no memberships for a
+    // nested relation filter such as `company: { isRestricted: false }`, even
+    // when the membership belongs to an unrestricted workspace.
+    const memberships = await this.prisma.workspaceMembership.findMany({
+      where: { userId: user.id },
       orderBy: { createdAt: 'asc' },
       include: { company: true },
     });
+    const membership = memberships.find(
+      (item) => isSystemAdmin(user.email) || !item.company.isRestricted,
+    );
     if (!membership) {
       throw new UnauthorizedException(
         'No workspace has been assigned to this user',
