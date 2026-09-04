@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, ChevronLeft, ChevronRight, Lock, Plus, Search, Trash2, Unlock } from "lucide-react";
+import { ArrowRightLeft, ChevronLeft, ChevronRight, Eye, EyeOff, KeyRound, Lock, Plus, Search, Trash2, Unlock } from "lucide-react";
 import { api, AuthResponse, ManagedUser, Workspace } from "@/lib/api";
 import { Card, Field, Modal, PageHeader, PrimaryButton, inputClass } from "@/components/ui";
 
@@ -13,6 +13,7 @@ export default function UsersPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<"ADMIN" | "READ_ONLY">("READ_ONLY");
   const [existingMode, setExistingMode] = useState(false);
   const [error, setError] = useState("");
@@ -24,6 +25,10 @@ export default function UsersPage() {
   const [pendingWorkspaceAction, setPendingWorkspaceAction] = useState<{ type: "restrict" | "delete"; workspace: Workspace } | null>(null);
   const [workspaceActionBusy, setWorkspaceActionBusy] = useState(false);
   const [workspaceCreateBusy, setWorkspaceCreateBusy] = useState(false);
+  const [pendingPasswordUser, setPendingPasswordUser] = useState<ManagedUser | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
 
   async function loadUsers(companyId = selectedWorkspace?.id) {
     const query = companyId ? `?companyId=${encodeURIComponent(companyId)}` : "";
@@ -55,7 +60,7 @@ export default function UsersPage() {
       } else {
         await api.post("/auth/users", { name, email, password, role, companyId: selectedWorkspace?.id });
       }
-      setName(""); setEmail(""); setPassword("");
+      setName(""); setEmail(""); setPassword(""); setShowPassword(false);
       setMessage(existingMode ? "Existing user added to this workspace." : "User added to this workspace.");
       await loadUsers();
     } catch (e) {
@@ -85,6 +90,24 @@ export default function UsersPage() {
       await loadUsers();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update user");
+    }
+  }
+
+  async function changePassword(e: FormEvent) {
+    e.preventDefault();
+    if (!pendingPasswordUser) return;
+    try {
+      setError("");
+      setPasswordBusy(true);
+      await api.patch(`/auth/users/${pendingPasswordUser.id}`, { password: newPassword, companyId: selectedWorkspace?.id });
+      setPendingPasswordUser(null);
+      setNewPassword("");
+      setShowNewPassword(false);
+      setMessage(`Password updated for ${pendingPasswordUser.name}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to change password");
+    } finally {
+      setPasswordBusy(false);
     }
   }
 
@@ -235,7 +258,7 @@ export default function UsersPage() {
         <form onSubmit={createUser} className="space-y-3">
           {!existingMode ? <Field label="Name"><input required className={inputClass} value={name} onChange={(e) => setName(e.target.value)} /></Field> : null}
           <Field label="Email"><input required type="email" className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-          {!existingMode ? <Field label="Temporary password"><input required minLength={12} type="password" className={inputClass} value={password} onChange={(e) => setPassword(e.target.value)} /></Field> : null}
+          {!existingMode ? <Field label="Temporary password"><div className="relative"><input required minLength={12} type={showPassword ? "text" : "password"} className={`${inputClass} pr-11`} value={password} onChange={(e) => setPassword(e.target.value)} /><button type="button" aria-label={showPassword ? "Hide temporary password" : "Show temporary password"} title={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500">{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></Field> : null}
           <Field label="Role"><select className={inputClass} value={role} onChange={(e) => setRole(e.target.value as typeof role)}><option value="READ_ONLY">Read only</option><option value="ADMIN">Write</option></select></Field>
           <PrimaryButton type="submit">Add user</PrimaryButton>
         </form>
@@ -246,7 +269,7 @@ export default function UsersPage() {
           {users.map((workspaceUser) => (
             <div key={workspaceUser.id} className="flex justify-between gap-4 p-4 text-sm">
               <span className="min-w-0"><b>{workspaceUser.name}</b><span className="ml-2 text-slate-500">{workspaceUser.email}</span></span>
-              <span className="flex shrink-0 items-center gap-3 text-slate-500"><select aria-label={`Role for ${workspaceUser.name}`} value={workspaceUser.role === "READ_ONLY" ? "READ_ONLY" : "ADMIN"} onChange={(e) => updateRole(workspaceUser, e.target.value as "ADMIN" | "READ_ONLY")} className="rounded border border-slate-200 px-2 py-1 text-xs"><option value="READ_ONLY">Read only</option><option value="ADMIN">Write</option></select><button type="button" className="text-rose-600" onClick={() => setPendingRemoval(workspaceUser)}>Remove</button></span>
+              <span className="flex shrink-0 items-center gap-3 text-slate-500"><select aria-label={`Role for ${workspaceUser.name}`} value={workspaceUser.role === "READ_ONLY" ? "READ_ONLY" : "ADMIN"} onChange={(e) => updateRole(workspaceUser, e.target.value as "ADMIN" | "READ_ONLY")} className="rounded border border-slate-200 px-2 py-1 text-xs"><option value="READ_ONLY">Read only</option><option value="ADMIN">Write</option></select><button type="button" aria-label={`Change password for ${workspaceUser.name}`} title="Change password" className="rounded p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700" onClick={() => { setPendingPasswordUser(workspaceUser); setNewPassword(""); setShowNewPassword(false); }}><KeyRound className="h-4 w-4" /></button><button type="button" className="text-rose-600" onClick={() => setPendingRemoval(workspaceUser)}>Remove</button></span>
             </div>
           ))}
         </div>
@@ -254,6 +277,9 @@ export default function UsersPage() {
       </div>
       <Modal open={Boolean(pendingRemoval)} title="Remove user from workspace?" onClose={() => removing ? undefined : setPendingRemoval(null)}>
         {pendingRemoval ? <div className="space-y-4"><p className="text-sm leading-6 text-slate-600">Remove <b>{pendingRemoval.name}</b> from <b>{selectedWorkspace?.name}</b>? Their account and access to other workspaces will remain unchanged.</p><div className="flex justify-end gap-2"><button type="button" disabled={removing} onClick={() => setPendingRemoval(null)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 disabled:opacity-50">Cancel</button><PrimaryButton type="button" disabled={removing} onClick={() => removeUser(pendingRemoval.id)} className="bg-rose-600 hover:bg-rose-700">{removing ? "Removing..." : "Remove user"}</PrimaryButton></div></div> : null}
+      </Modal>
+      <Modal open={Boolean(pendingPasswordUser)} title="Change user password" onClose={() => passwordBusy ? undefined : setPendingPasswordUser(null)}>
+        {pendingPasswordUser ? <form onSubmit={changePassword} className="space-y-4"><p className="text-sm leading-6 text-slate-600">Set a new password for <b>{pendingPasswordUser.name}</b>. The current password cannot be viewed.</p><Field label="New password"><div className="relative"><input required minLength={12} type={showNewPassword ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={`${inputClass} pr-11`} autoComplete="new-password" /><button type="button" aria-label={showNewPassword ? "Hide new password" : "Show new password"} title={showNewPassword ? "Hide password" : "Show password"} onClick={() => setShowNewPassword((visible) => !visible)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500">{showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></Field><div className="flex justify-end gap-2"><button type="button" disabled={passwordBusy} onClick={() => setPendingPasswordUser(null)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 disabled:opacity-50">Cancel</button><PrimaryButton type="submit" disabled={passwordBusy}>{passwordBusy ? "Updating..." : "Update password"}</PrimaryButton></div></form> : null}
       </Modal>
       <Modal open={Boolean(pendingWorkspaceAction)} title={pendingWorkspaceAction?.type === "delete" ? "Delete workspace permanently?" : pendingWorkspaceAction?.workspace.isRestricted ? "Unrestrict workspace?" : "Restrict workspace?"} onClose={() => workspaceActionBusy ? undefined : setPendingWorkspaceAction(null)}>
         {pendingWorkspaceAction ? <div className="space-y-4"><p className="text-sm leading-6 text-slate-600">{pendingWorkspaceAction.type === "delete" ? <>This permanently deletes <b>{pendingWorkspaceAction.workspace.name}</b> and all of its data. This cannot be undone.</> : <>While <b>{pendingWorkspaceAction.workspace.name}</b> is restricted, users cannot perform business operations in it.</>}</p><div className="flex justify-end gap-2"><button type="button" disabled={workspaceActionBusy} onClick={() => setPendingWorkspaceAction(null)} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm text-slate-700 disabled:opacity-50">Cancel</button><PrimaryButton type="button" disabled={workspaceActionBusy} onClick={confirmWorkspaceAction} className={pendingWorkspaceAction.type === "delete" ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"}>{workspaceActionBusy ? "Applying..." : pendingWorkspaceAction.type === "delete" ? "Delete permanently" : pendingWorkspaceAction.workspace.isRestricted ? "Unrestrict workspace" : "Restrict workspace"}</PrimaryButton></div></div> : null}

@@ -94,7 +94,7 @@ export class AuthController {
   @AdminOnly()
   updateUser(
     @Param('id') id: string,
-    @Body() dto: { name?: string; role?: 'ADMIN' | 'READ_ONLY'; companyId?: string },
+    @Body() dto: { name?: string; role?: 'ADMIN' | 'READ_ONLY'; password?: string; companyId?: string },
     @Req() request: AuthenticatedRequest,
   ) {
     return this.authService.updateUser(id, dto, this.managementCompanyId(request, dto.companyId));

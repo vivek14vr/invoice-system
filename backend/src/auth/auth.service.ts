@@ -461,7 +461,7 @@ export class AuthService implements OnModuleInit {
 
   async updateUser(
     id: string,
-    dto: { name?: string; role?: 'ADMIN' | 'READ_ONLY' },
+    dto: { name?: string; role?: 'ADMIN' | 'READ_ONLY'; password?: string },
     companyId?: string | null,
   ) {
     if (!companyId) throw new NotFoundException('Workspace not found');
@@ -473,6 +473,9 @@ export class AuthService implements OnModuleInit {
     if (!membership) throw new NotFoundException('User not found in this workspace');
     const name = dto.name?.trim();
     if (dto.name !== undefined && !name) throw new BadRequestException('User name is required');
+    if (dto.password !== undefined && dto.password.length < 12) {
+      throw new BadRequestException('Password must be at least 12 characters');
+    }
     const role = dto.role ?? membership.role;
     if (membership.role === 'ADMIN' && role !== 'ADMIN') {
       const adminCount = await this.prisma.workspaceMembership.count({ where: { companyId, role: 'ADMIN' } });
@@ -480,7 +483,7 @@ export class AuthService implements OnModuleInit {
     }
     await this.prisma.$transaction([
       this.prisma.workspaceMembership.update({ where: { id: membership.id }, data: { role } }),
-      this.prisma.user.update({ where: { id }, data: { ...(name ? { name } : {}), role } }),
+      this.prisma.user.update({ where: { id }, data: { ...(name ? { name } : {}), role, ...(dto.password !== undefined ? { passwordHash: await hashPassword(dto.password) } : {}) } }),
     ]);
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     return this.safeUser({ ...target, ...(name ? { name } : {}), role }, companyId, role, company);
